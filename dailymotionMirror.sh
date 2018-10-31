@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Error handler just to print where fault occurred.  But code will still continue
+errorHandler() {
+    errInfo="Error on line $1"
+    [ -t 0 ] || echo "$errInfo"
+    echo "$errInfo" 1>&2
+}
+trap 'errorHandler $LINENO' ERR
+
 initialization() {
 
     # Standard Exit Codes Enum
@@ -35,6 +43,7 @@ setConstants() {
     wr_dailyLimit=3
     
     # Files and directories
+    selfSourceCode="https://raw.githubusercontent.com/skytunnel/dailymotionMirror/master/dailymotionMirror.sh"
     ytdlSource="https://yt-dl.org/downloads/latest/youtube-dl"
     ytdl="/usr/local/bin/youtube-dl"
     ytdlInfoExt="info.json"
@@ -50,25 +59,26 @@ setConstants() {
     uploadTrackingFile=$scriptDir/published.json
     uploadTrackingFileCSV=$scriptDir/published.csv
     logFile=$scriptDir/$scriptName.log
-    logArchive=logs/$(date +"%Y%m%d_%H%M%S").log
+    logArchive=$(date +"%Y%m%d_%H%M%S").log
     outputDir=$scriptDir/$scriptName/ # Defaults to this when not set on prop file
     
     # DailyMotion's automated upload limits...
     # https://developer.dailymotion.com/api#guidelines
     # https://faq.dailymotion.com/hc/en-us/articles/115009030568-Upload-policies
-    dmDurationAllowance=7200                # Dailymotion.com upload duration allowance in seconds
-    dmDurationAllowanceExpiry=86400         # How long before duration expires and can be used again
-    dmVideosPerDay=10                       # Max number of videos per day
-    dmVideosPerDayForVerifiedPartners=96    # Max number of videos per day on Verified Partner Accounts
-    dmVideoAllowance=4                      # Dailymotion.com video count allowance
-    dmVideoAllowanceExpiry=3600             # How long before video count expires and can be used again
-    dmExpiryToleranceTime=30                # Additional amount of seconds to wait on top of the dailymotion allowance expiry (in order to avoid exceeding limits) 
-    dmWaitTimeBetweenUploads=30             # The minimum seconds between one upload ending and another beginning
-    timeoutVideoDurationSearch="10 minutes" # How long to spent searching for videos that fit the duration allowance
-    dmMaxTitleLength=255                    # Max characters for video title
-    dmMaxDescription=3000                   # Max characters for video description
-    dmMaxDescriptionForPartners=5000        # Max characters for video description on Partner Accounts
-    dmMaxTags=150                           # Max number of tags on a video
+    dmDurationAllowanceSTR="2 hours"            # Dailymotion.com upload duration allowance
+    dmDurationAllowanceExpirySTR="24 hours"     # How long before duration expires and can be used again
+    dmVideosPerDay=10                           # Max number of videos per day
+    dmVideosPerDayForVerifiedPartners=96        # Max number of videos per day on Verified Partner Accounts
+    dmVideoAllowance=4                          # Dailymotion.com video count allowance
+    dmVideoAllowanceExpirySTR="60 minutes"      # How long before video count expires and can be used again
+    dmExpiryToleranceTimeSTR="30 seconds"       # Additional amount of seconds to wait on top of the dailymotion allowance expiry (in order to avoid exceeding limits) 
+    dmWaitTimeBetweenUploadsSTR="30 seconds"    # The minimum seconds between one upload ending and another beginning
+    waitTimeBeforeDownloadingSTR="2 hours"      # How much time to allow the download before the allowance is available
+    waitTimeBeforeUploadingSTR="30 minutes"     # How much time to allow the upload before the allowance is available
+    dmMaxTitleLength=255                        # Max characters for video title
+    dmMaxDescription=3000                       # Max characters for video description
+    dmMaxDescriptionForPartners=5000            # Max characters for video description on Partner Accounts
+    dmMaxTags=150                               # Max number of tags on a video
 
     # https://developer.dailymotion.com/api
     # "Video upload through the API is also limited to:
@@ -80,6 +90,15 @@ setConstants() {
     # To check your limits at the video level, you can request the 
     # limits field on your own user using the API, like this:
     # /me?fields=limits (you will need to be authenticated)."
+    
+    # Convert times to seconds
+    dmDurationAllowance=$(timeInSeconds "$dmDurationAllowanceSTR")
+    dmDurationAllowanceExpiry=$(timeInSeconds "$dmDurationAllowanceExpirySTR")
+    dmVideoAllowanceExpiry=$(timeInSeconds "$dmVideoAllowanceExpirySTR")
+    dmExpiryToleranceTime=$(timeInSeconds "$dmExpiryToleranceTimeSTR")
+    dmWaitTimeBetweenUploads=$(timeInSeconds "$dmWaitTimeBetweenUploadsSTR")
+    waitTimeBeforeDownloading=$(timeInSeconds "$waitTimeBeforeDownloadingSTR")
+    waitTimeBeforeUploading=$(timeInSeconds "$waitTimeBeforeUploadingSTR")
     
 }
 
@@ -123,9 +142,10 @@ installDependencies() {
         echo "    source code: $ytdlSource"
         echo ""
         promptYesNo "Are you happy to continue?..."
+        [ $? -eq $ec_Yes ] || exit
         
         # Install Youtube-dl
-        curl --location $ytdlSource --output $ytdl || exit 1
+        wget $ytdlSource --output-document $ytdl || exit 1
         chmod a+rx $ytdl || exit 1
         
     fi
@@ -164,12 +184,13 @@ inputArguments() {
     co_syncVideoDetails=14
     co_checkServerTimeOffset=15
     co_killExistingInstance=16
-    co_devTestCode=17
+    co_updateSourceCode=17
+    co_devTestCode=18
     
     # Set Default Argument Options
     optRunProcedure=$co_mainProcedure
     optDebug=N
-    optLogger=N
+    optKeepLogFile=N
     optMarkDoneID=
     optSyncDailyMotionID=
     optCountOfUpload=
@@ -189,8 +210,8 @@ inputArguments() {
         -d|--debug)
             optDebug=Y
             ;;
-        --enable-logger)
-            optLogger=Y
+        --keep-log-file)
+            optKeepLogFile=Y
             ;;
         --first-time-setup)
             setRunProcedure $co_firstTimeSetup
@@ -259,6 +280,9 @@ inputArguments() {
         --single-video=*)
             optUploadSpecificVideoID="${i#*=}"
             ;;
+        --update)
+            setRunProcedure $co_updateSourceCode
+            ;;
         --dev-test-code)
             setRunProcedure $co_devTestCode
             ;;
@@ -271,7 +295,7 @@ inputArguments() {
     # Print Current Arguments (debug info only)
     if [ $optDebug = Y ]; then
         echo "optDebug:                 " $optDebug
-        echo "optLogger:                " $optLogger
+        echo "optKeepLogFile:           " $optKeepLogFile
         echo "optRunProcedure:          " $optRunProcedure
         echo "optCountOfUpload:         " $optCountOfUpload
         echo "optUploadSpecificVideoID: " $optUploadSpecificVideoID
@@ -305,13 +329,14 @@ helpMenu() {
     echo "OPTIONS"
     echo "$(wrapHelpColumn "  -h, --help, -?, ?       " "Prints this help menu and quits")"
     echo "$(wrapHelpColumn "  -d, --debug             " "Prints additional info while running")"
-    echo "$(wrapHelpColumn "      --enable-logger     " "Output progress to a log file in the output folder for review")"
+    echo "$(wrapHelpColumn "      --keep-log-file     " "Saves a backup of the .log file to the output directory after each run")"
     echo "$(wrapHelpColumn "      --count=NUM         " "Only upload the specified number then stop (used for testing 1 at a time)")"
     echo "$(wrapHelpColumn "      --single-video=ID   " "Only upload the specified youtube video ID then stop (can be any valid video id, does not have to exist on your .urls file)")"
     echo "$(wrapHelpColumn "      --ignore-allowance  " "Ignore upload allowance restrictions (for testing purposes ONLY)")"
     echo "$(wrapHelpColumn "      --multi-instance    " "TESTING ONLY.  Allow a second instance to be run while another is still going")"
     echo ""
     echo "  SPECIAL COMMAND OPTIONS (only one allowed)"
+    echo "$(wrapHelpColumn "      --update            " "Download the latest release of this script and replace the current version with it.  Requires root")"
     echo "$(wrapHelpColumn "      --first-time-setup  " "Triggers automatically on first run (WARNING - running this will reset your login and perferences!).  Requires root")"
     echo "$(wrapHelpColumn "      --grant-access      " "Trigger prompt for dailymotion login details.  WARNING this will remove any existing saved login")"
     echo "$(wrapHelpColumn "      --revoke-access     " "Revoke all access to the given dailymotion access (if you want to stop using this).  Requires root")"
@@ -417,15 +442,6 @@ rootRequired() {
 
 }
 
-# Error handler just to print where fault occured.  But code will still continue
-errorHandler() {
-    errInfo="Error on line $1"
-    [ -t 0 ] || echo "$errInfo"
-    echo "$errInfo" 1>&2
-    copyLog
-}
-trap 'errorHandler $LINENO' ERR
-
 # function to print an error
 function printError() {
     errMsg="$@"
@@ -434,23 +450,13 @@ function printError() {
     else
         errMsg="ERROR: $errMsg"
     fi
-    [ -t 0 ] || echo "$errMsg"
     echo "$errMsg" 1>&2
 }
 
 # function to log error and exit
 function raiseError() {
     printError "$@"
-    copyLog
     exitRoutine
-}
-
-# function to copy the log file
-function copyLog() {
-    if [ -f "$logFile" ]; then
-        logFileErr=$logFile.$(date +"%Y%m%d%H%M%S").err
-        cp "$logFile" "$logFileErr"
-    fi
 }
 
 # function to test for numeric value
@@ -474,6 +480,11 @@ function isDate() {
             echo Y
         fi
     fi
+}
+
+# Function convert a time string to number of seconds
+function timeInSeconds() {
+    echo $(($(date +%s -d "+$@")-$(date +%s)))
 }
 
 # function to prompt user for yes/no response
@@ -522,11 +533,10 @@ function queryJson() {
         fi
         
         # Query result
-        returnValue=$(jq \
-            --raw-output \
+        jq --raw-output \
             --compact-output \
             "$jsElementName" \
-            "$jsonInput")
+            "$jsonInput"
     else
         # Ensure string is not blank
         if [ -z "${jsonInput// }" ]; then
@@ -535,15 +545,11 @@ function queryJson() {
         fi
         
         # Query result
-        returnValue=$(jq \
-            --raw-output \
+        jq --raw-output \
             --compact-output \
             "$jsElementName" \
-            <<< "$jsonInput")
+            <<< "$jsonInput"
     fi
-    
-    # Return result
-    echo "$returnValue"
 }
 
 main() {
@@ -634,7 +640,7 @@ exitRoutine() {
     releaseInstance
     
     # Backup the published files
-    if [ -f "$processingDirectory" ]; then
+    if [ -d "$processingDirectory" ]; then
         cp "$uploadTrackingFile" "$processingDirectory"/*.bku
         cp "$uploadTrackingFileCSV" "$processingDirectory"/*.bku
     fi
@@ -661,7 +667,6 @@ startStatistics() {
 recordSkipStats() {
     ((totalVideosSkipped++))
     ((totalDurationSkipped+=videoDuration))
-    echo "DEBUGGING: skipped = $totalVideosSkipped , uploaded = $totalVideosUploaded , remaining = $((totalVideosRemaining-totalVideosUploaded))  "
 }
 
 printStatistics() {
@@ -791,10 +796,7 @@ getYouTubeInfoFromJson() {
             youtubeVideoTags=$hashTags","$youtubeVideoTags
         fi
     fi
-    
-    # Format Full Description
-    #dmVideoDescr="Originally uploaded on $youtubeVideoUploadDate to:"$'\n'"$youtubeVideoLink"$'\n\n'"Subscribe on Youtube:"$'\n'"$youtubeChannel"$'\n\n'"$youtubeVideoDescr"$'\n\n'"$youtubeVideoTags"
-    
+
     # Expand description from template
     youtubeVideoDescr=${youtubeVideoDescr//$'\n'/\\\n}
     dmDescrTemplateNew=${uploadVideoDescrTEMPLATE//$'\n'/\\\\n}
@@ -840,12 +842,13 @@ getYouTubeInfoFromJson() {
 }
 
 processExistingJsons() {
-
+    
+    preExistingVideos=0
     for videoJson in ./*.$ytdlInfoExt ; do
         [ -f "$videoJson" ] || break
         
         # Add on to remaining videos (as would not have been counted previously)
-        ((totalVideosRemaining++))
+        ((preExistingVideos++))
         
         # Get Video Info
         getYouTubeInfoFromJson
@@ -858,7 +861,7 @@ processExistingJsons() {
             $ec_ContinueNext) continue ;;
             $ec_BreakLoop) break ;;
             $ec_Success) ;;
-            *) exit 1 ;;
+            *) exit $ec_Error ;;
         esac
         
         # Process any required video splitting
@@ -868,11 +871,8 @@ processExistingJsons() {
             $ec_ContinueNext) continue ;;
             $ec_BreakLoop) break ;;
             $ec_Success) ;;
-            *) exit 1 ;;
+            *) exit $ec_Error ;;
         esac
-        
-        # Wait required time for required allowance to be available
-        waitForUploadAllowance
         
         # Ready for upload
         uploadToDailyMotion
@@ -913,13 +913,13 @@ processNewDownloads() {
         cp $videoListFileTmp "$videoListFile"
         rm --force $videoListFileTmp
         totalVideosRemaining=$((totalVideosRemaining+$(wc -l < "$videoListFile")))
-        echo
+        ((totalVideosRemaining+=preExistingVideos)) #correct counter 
     fi
 
     # Timeout for how long to spend search searching for video that fits upload allowance
-    stopVideoDurationSearch=$(date +%s -d "+$timeoutVideoDurationSearch")
+    stopVideoDurationSearch=$(($(date +%s)+timeoutVideoDurationSearch))
     
-    # download new videos
+    # Download new videos
     #for videoId in $(sed -e s/"youtube "//g "$videoListFile"); do
     readarray recs < "$videoListFile"
     for rec in "${recs[@]}"; do
@@ -928,6 +928,8 @@ processNewDownloads() {
         
         # Skip "0" ids (happens when single video url provided)
         [ $videoId = "0" ] && continue
+        
+        echo "DEBUGGING: skipped=$totalVideosSkipped uploaded=$totalVideosUploaded remaining=$((totalVideosRemaining-totalVideosUploaded)) totalVideosRemaining=$totalVideosRemaining"
         
         # Quit if spent too much time not uploading anything (only just for video duration that will fit)
         if [ $(date +%s) -gt $stopVideoDurationSearch ]; then
@@ -942,7 +944,7 @@ processNewDownloads() {
             $ec_ContinueNext) continue ;;
             $ec_BreakLoop) break ;;
             $ec_Success) ;;
-            *) exit 1 ;;
+            *) exit $ec_Error ;;
         esac
         
         # Download this youtube video id
@@ -952,7 +954,7 @@ processNewDownloads() {
             $ec_ContinueNext) continue ;;
             $ec_BreakLoop) break ;;
             $ec_Success) ;;
-            *) exit 1 ;;
+            *) exit $ec_Error ;;
         esac
         
         # Get Video Info
@@ -965,22 +967,22 @@ processNewDownloads() {
             $ec_ContinueNext) continue ;;
             $ec_BreakLoop) break ;;
             $ec_Success) ;;
-            *) exit 1 ;;
+            *) exit $ec_Error ;;
         esac
-        
-        # Wait required time for required allowance to be available
-        waitForUploadAllowance
         
         # Upload to Daily Motion
         uploadToDailyMotion
         
         # Restart timeout for duration allowance video search
-        stopVideoDurationSearch=$(date +%s -d "+$timeoutVideoDurationSearch")
+        stopVideoDurationSearch=$(($(date +%s)+timeoutVideoDurationSearch))
 
     done
 }
 
 downloadVideo() {
+
+    # Wait 2 hours before the required time before uploading
+    waitForUploadAllowance $waitTimeBeforeDownloading
 
     # Download this youtube video id
     echo $(date)" - Downloading YouTube Video..."
@@ -1123,11 +1125,17 @@ splitVideoRoutine() {
         rm --force "./$videoJson"
         
         # Run procedure to process existing jsons
-        ((totalVideosRemaining-=videoSplits)) #correct counter
+        uploadsBefore=$totalVideosUploaded
         processExistingJsons
         
+        # Correctly track count as only one video if all splits uploaded
+        uploadsAfter=$totalVideosUploaded
+        splitUploadsDone=$((uploadsAfter-uploadsBefore))
+        ((totalVideosRemaining+=splitUploadsDone)) # Completely discount increase in uploads
+        [ $splitUploadsDone -eq $videoSplits ] && ((totalVideosRemaining--))
+        
         # Restart timeout for duration allowance video search
-        stopVideoDurationSearch=$(date +%s -d "+$timeoutVideoDurationSearch")
+        stopVideoDurationSearch=$(($(date +%s)+timeoutVideoDurationSearch))
         
         # Continue to next download
         return $ec_ContinueNext
@@ -1418,23 +1426,28 @@ dmGetLimits() {
 }
 
 waitForUploadAllowance() {
-
+    
+    # Given target wait time
+    targetTime=$1
+    [ $(isNumeric $targetTime) = N ] && targetTime=0
+    [ $targetTime -gt 0 ] || targetTime=0
+    
     # Exit if no waiting time required
     waitingTime=$((maxWaitTill+dmExpiryToleranceTime-$(date +%s)))
-    [ $waitingTime -le 0 ] && return 0
+    [ $waitingTime -le $targetTime ] && return $ec_Success
     
     # Detailed info message for wait reason
     echo "Waiting for allowance restrictions to pass due to "$(waitReasonDescription $waitingForType)
 
     # Ignore allowances?
     if [ $optIgnoreAllowance = Y ]; then
-        echo "WARNING: option set to ignore upload allowances"
-        echo "Meant to wait till "$(date -d @$maxWaitTill)
-        echo "But continuing with upload anyway..."
+        echo "WARNING: option set to ignore upload allowances. Meant to wait till "$(date -d @$maxWaitTill)". But continuing anyway..."
     else
         # Required Sleep Time
-        echo "Waiting till "$(date -d @$maxWaitTill)
-        sleep $waitingTime
+        sleepTime=$((waitingTime-targetTime))
+        sleepTill=$((maxWaitTill-targetTime))
+        echo "Waiting till "$(date -d @$sleepTill)", allowance available at "$(date -d @$maxWaitTill)
+        sleep $sleepTime
     fi
     
 }
@@ -1473,7 +1486,7 @@ dailyMotionFirstTimeSetup() {
         echo "WARNING .prop file has already been setup!"
         echo ""
         promptYesNo "Are you sure you want to continue? (this will reset everything!)"
-        [ $? -eq $ec_Yes ] || exit 1
+        [ $? -eq $ec_Yes ] || exit
         
         # Load the properties file
         loadPropertiesFile
@@ -1570,6 +1583,7 @@ setDefaultPropteries() {
     [ -z "$delayedVideosWillBeUploadedAfter" ]      && delayedVideosWillBeUploadedAfter="7 days"
     [ -z "$maxTimeToWaitForUploadToPublish" ]       && maxTimeToWaitForUploadToPublish="5 minutes"
     [ -z "$targetRemainingAllowance" ]              && targetRemainingAllowance="30 seconds"
+    [ -z "$durationAllowanceSearchTimeout" ]        && durationAllowanceSearchTimeout="10 minutes"
     [ -z "$mirrorVideoThumbnails" ]                 && mirrorVideoThumbnails=N
     [ -z "$uploadVideoAppendedTags" ]               && uploadVideoAppendedTags=
     [ -z "$uploadVideoWithNextVideoIdPlayback" ]    && uploadVideoWithNextVideoIdPlayback=
@@ -1616,6 +1630,8 @@ loadPropertiesFile() {
         echo "delayDownloadsAfter:                  " $(date -d @$delayDownloadsAfter)
         echo "targetRemainingAllowance:             " $targetRemainingAllowance
         echo "targetRemainingDuration:              " $targetRemainingDuration
+        echo "durationAllowanceSearchTimeout:       " $durationAllowanceSearchTimeout
+        echo "timeoutVideoDurationSearch:           " $timeoutVideoDurationSearch
         echo "maxTimeToWaitForUploadToPublish:      " $maxTimeToWaitForUploadToPublish
         echo "dmPublishingTimeout:                  " $dmPublishingTimeout
         echo "uploadVideoAppendedTags:              " $uploadVideoAppendedTags
@@ -1675,7 +1691,7 @@ validateProperties() {
         printError "\"$delayDownloadIfVideoIsLongerThan\" is an invalid time value for delayDownloadIfVideoIsLongerThan"
         propFailedValidation=Y
     else 
-        delayDownloadDuration=$(($(date +%s -d "+$delayDownloadIfVideoIsLongerThan")-$(date +%s)))
+        delayDownloadDuration=$(timeInSeconds "$delayDownloadIfVideoIsLongerThan")
         if ! [ $delayDownloadDuration -gt 0 ]; then
             printError "\"$delayDownloadIfVideoIsLongerThan\" is not a positive value for delayDownloadIfVideoIsLongerThan"
             propFailedValidation=Y
@@ -1696,7 +1712,7 @@ validateProperties() {
         propFailedValidation=Y
     else
         # Validate the Published Timeout is a positive value
-        dmPublishingTimeout=$(($(date +%s -d "+$maxTimeToWaitForUploadToPublish")-$(date +%s)))
+        dmPublishingTimeout=$(timeInSeconds "$maxTimeToWaitForUploadToPublish")
         if ! [ $dmPublishingTimeout -gt 0 ]; then
             printError "\"$maxTimeToWaitForUploadToPublish\" is not a positive value for maxTimeToWaitForUploadToPublish"
             propFailedValidation=Y
@@ -1708,9 +1724,21 @@ validateProperties() {
         printError "\"$targetRemainingAllowance\" is an invalid time value for targetRemainingAllowance"
         propFailedValidation=Y
     else
-        targetRemainingDuration=$(($(date +%s -d "+$targetRemainingAllowance")-$(date +%s)))
+        targetRemainingDuration=$(timeInSeconds "$targetRemainingAllowance")
         if ! [ $targetRemainingDuration -gt 0 ]; then
             printError "\"$targetRemainingAllowance\" is not a positive value for targetRemainingAllowance"
+            propFailedValidation=Y
+        fi
+    fi
+    
+    # Convert search timeout to a number
+    if [ $(isDate "$durationAllowanceSearchTimeout") = N ]; then
+        printError "\"$durationAllowanceSearchTimeout\" is an invalid time value for durationAllowanceSearchTimeout"
+        propFailedValidation=Y
+    else
+        timeoutVideoDurationSearch=$(timeInSeconds "$durationAllowanceSearchTimeout")
+        if ! [ $timeoutVideoDurationSearch -gt 0 ]; then
+            printError "\"$durationAllowanceSearchTimeout\" is not a positive value for durationAllowanceSearchTimeout"
             propFailedValidation=Y
         fi
     fi
@@ -2124,12 +2152,11 @@ dmUploadFile() {
 
 uploadToDailyMotion() {
     
-    # Required Info
+    # Requires Title
     [ -z "$videoTitle" ]    && raiseError "Video Title required!"
-    
-    ############ Add more error checks here on required fields
-    
-    
+
+    # Wait 30 minutes before the required time before uploading
+    waitForUploadAllowance $waitTimeBeforeUploading
     
     # Renew Access Token
     if [ $(date +%s) -gt $dmAccessRenewTime ]; then
@@ -2143,6 +2170,9 @@ uploadToDailyMotion() {
     if [ -z "$dmPostedUrl" ]; then
         raiseError "No Response from upload url!?"
     fi
+    
+    # Wait full required time for required allowance to be available
+    waitForUploadAllowance
 
     # Post the video to channel
     echo $(date)" - post video to channel..."
@@ -2296,7 +2326,7 @@ publishVideo() {
         --data "published=true" \
         --data "channel=$uploadVideoInCategory" \
         --data-urlencode "title=$videoTitle" \
-        --data-urlencode "description=$dmVideoDescr" \
+        ${dmVideoDescr:+ --data-urlencode "tags=$dmVideoDescr"} \
         ${youtubeVideoTags:+ --data-urlencode "tags=$youtubeVideoTags"} \
         ${uploadVideoWithNextVideoIdPlayback:+ --data-urlencode "player_next_video=$uploadVideoWithNextVideoIdPlayback"} \
         ${uploadVideoWithPassword:+ --data-urlencode "password=$uploadVideoWithPassword"} \
@@ -2351,8 +2381,8 @@ uploadChannelArt() {
 addLinkToPrevVideoPart() {
     
     # Not Required
-    [ $(isNumeric $videoPart) = N ] && return 1
-    [ $videoPart -gt 1 ] || return 1
+    [ $(isNumeric $videoPart) = N ] && return $ec_Error
+    [ $videoPart -gt 1 ] || return $ec_Error
     
     # Find the id of the previous part
     echo "Editing Previous part with link to this part..."
@@ -2384,7 +2414,7 @@ addLinkToPrevVideoPart() {
     prevDmNextId=$(queryJson "player_next_video" "$dmServerResponse") || exit 1
     if [ "$prevDmNextId" = "$dmVideoId" ]; then
         echo "Previous video already has link.  Cancelling edit"
-        return 1
+        return $ec_Error
     fi
     
     # Update description with next part
@@ -2702,6 +2732,10 @@ blankPropFile() {
     echo "targetRemainingAllowance=$targetRemainingAllowance"
     echo ""
     echo ""
+    echo "# (REQUIRED) Time to spend searching for videos to fit the remaining duration allowance before quitting (note checking echo video takes about 30-60 seconds)"
+    echo "durationAllowanceSearchTimeout=$durationAllowanceSearchTimeout"
+    echo ""
+    echo ""
     echo "# (REQUIRED) Mirror the video thumbnail images as well (Must be signed as partner)? (Y or N)"
     echo "mirrorVideoThumbnails=$mirrorVideoThumbnails"
     echo ""
@@ -2792,7 +2826,7 @@ blankCronFile() {
     scheduleMinute=$((RANDOM % 60))
     echo ""
     echo "# Scheduled job for dailymotion upload (recommended to schedule once every 24 hours)"
-    echo "$scheduleMinute $scheduleHour * * * $(whoami) \"$scriptDir/$scriptFile\" #--enable-logger"
+    echo "$scheduleMinute $scheduleHour * * * $(whoami) \"$scriptDir/$scriptFile\" #--keep-log-file"
     echo ""
     echo "# Schedule format instructions..."
     echo "# [minute] [hour] [day-of-month] [month] [day-of-week] [run-as-user] [command-to-execute]"
@@ -2809,6 +2843,29 @@ blankCronFile() {
 
 }
 
+updateSourceCode() {
+    
+    # Sudo Access required    
+    rootRequired
+    
+    # Are you sure? 
+    promptYesNo "Are you sure you want update this script?"
+    [ $? -eq $ec_Yes ] || exit
+    
+    # Backup copy
+    cp "$scriptFile/$scriptFile" "$scriptFile/$scriptFile.bku"
+    
+    # Download latest source code
+    wget $selfSourceCode --output-document "$scriptFile/$scriptFile.tmp"
+    if [ $? -ne $ec_Success ]; then
+        raiseError "Failed to download the source code!?"
+    fi
+    
+    # Copy to self
+    cp "$scriptFile/$scriptFile.tmp" "$scriptFile/$scriptFile"
+
+}
+
 testCodeDevONLY() {
     echo "nothing to test here :)"
 }
@@ -2822,18 +2879,15 @@ procedureSelection() {
             if [ -t 0 ]; then
                 main
             else
-                if [ $optLogger = Y ]; then
-                    main > "$logFile"
+                main > "$logFile" 2>&1
                     
-                    # Archive the log
+                # Archive the log
+                if [ $optKeepLogFile = Y ]; then
                     if [ -d "$outputDir" ]; then
-                        logArchive="$outputDir/$logArchive"
-                        [ -d "$logArchive" ] || mkdir "$logArchive"
-                        cp "$logFile" "$logArchive"
+                        logArchiveDir="$outputDir/logs"
+                        [ -d "$logArchiveDir" ] || mkdir "$logArchiveDir"
+                        cp "$logFile" "$logArchiveDir/$logArchive"
                     fi
-                    
-                else
-                    main > /dev/null
                 fi
             fi
             ;;
@@ -2924,6 +2978,11 @@ procedureSelection() {
         $co_killExistingInstance)
             killExistingInstance
             ;;
+        
+        # Self updating code
+        $co_updateSourceCode)
+            updateSourceCode    
+            ;;    
         
         # Run code in the test procedure (DEV ONLY)
         $co_devTestCode)
