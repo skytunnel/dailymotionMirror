@@ -2924,7 +2924,7 @@ blankCronFile() {
 updateSourceCode() {
     
     # Sudo Access required    
-    #rootRequired
+    rootRequired
     
     # Are you sure? 
     promptYesNo "Are you sure you want update this script?"
@@ -2945,10 +2945,17 @@ updateSourceCode() {
     if [ $? -ne $ec_Success ]; then
         rm $tmpFile
         raiseError "Failed copy over the new source code!?"
-    else
-        echo ""
-        echo "Successfully update code to latest release"
     fi
+    
+    # Set correct permissions
+    sudo chmod 755 "$scriptDir/$scriptFile" || exit 1    
+    if [ $? -ne $ec_Success ]; then
+        raiseError "Failed to set executable rights to the script file!?"
+    fi
+    
+    # Success
+    echo ""
+    echo "Successfully update code to latest release"
 
 }
 
