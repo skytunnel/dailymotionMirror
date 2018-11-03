@@ -3,7 +3,6 @@
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
     errInfo="Error on line $1"
-    [ -t 0 ] || echo "$errInfo"
     echo "$errInfo" 1>&2
 }
 trap 'errorHandler $LINENO' ERR
@@ -128,7 +127,7 @@ installDependencies() {
         [ $? -eq $ec_Yes ] || exit
         
         # Install Required Packages
-        apt-get install libav-tools curl cron jq || exit 1
+        sudo apt-get install libav-tools curl cron jq || exit 1
         
     fi
     
@@ -145,8 +144,8 @@ installDependencies() {
         [ $? -eq $ec_Yes ] || exit
         
         # Install Youtube-dl
-        wget $ytdlSource --output-document $ytdl || exit 1
-        chmod a+rx $ytdl || exit 1
+        sudo wget $ytdlSource --output-document $ytdl || exit 1
+        sudo chmod a+rx $ytdl || exit 1
         
     fi
 
@@ -405,7 +404,7 @@ exitOnExistingInstance() {
     fi
 
     # Record this process id on the lock file
-    echo $thisProccessId > "$instanceLockFile"
+    echo $thisProcessId > "$instanceLockFile"
 
 }
 
@@ -436,8 +435,9 @@ killExistingInstance() {
 rootRequired() {
     
     # Procedure to exit with error when root access is required
-    if [ "$EUID" -ne 0 ]; then
-        raiseError "Please run again with elevated rights (e.g. prefix with sudo command)"
+    #if [ "$EUID" -ne 0 ]; then
+    if ! [ $(sudo echo 0 ) ]; then
+        raiseError "Root access is required to run this command"
     fi
 
 }
@@ -566,7 +566,7 @@ main() {
     
     # Record start time
     mainStartTime=$(date +%s)
-    echo "Start date time:                " $(date +"%Y-%m-%d %H:%M:%S")
+    echo "Start date time:                      " $(date +"%Y-%m-%d %H:%M:%S")
     
     # Check required files exist
     [ -f "$urlsFile" ] || raiseError "urls file not found! $urlsFile"
@@ -579,20 +579,20 @@ main() {
     # Determine when the next 24 hour upload period begins
     videoDuration=0
     dmGetLimits --do-not-print
+    uploadWindowStart=$mainStartTime
     if [ $oldestVideoThisHour -gt 0 ]; then
         uploadWindowStart=$((oldestVideoThisHour-300))
     else
-        uploadWindowStart=$((oldestVideoThisDay+dmDurationAllowanceExpiry))
-    fi
-    if ! [ $uploadWindowStart -gt 0 ]; then # i.e. No videos on first time use
-        uploadWindowStart=mainStartTime
+        if [ $oldestVideoThisDay -gt 0 ]; then
+            uploadWindowStart=$((oldestVideoThisDay+dmDurationAllowanceExpiry))
+        fi
     fi
     uploadWindowEnd=$((uploadWindowStart+dmDurationAllowanceExpiry))
-    echo "Upload window ends at:          " $(date -d @$uploadWindowEnd)
+    echo "Upload window ends at:                " $(date -d @$uploadWindowEnd)
     
     # Determine time to quit (before next schedule starts)
     dmUploadQuitingTime=$((mainStartTime+dmDurationAllowanceExpiry-300)) # 5 minute tolerance for startup time
-    echo "Quit time before next schedule: " $(date -d @$dmUploadQuitingTime)
+    echo "Quit time before next schedule:       " $(date -d @$dmUploadQuitingTime)
     echo ""
 
     # Get connected to dailymotion
@@ -633,16 +633,28 @@ exitRoutine() {
     # Clear down the video cache of upload videos
     clearVideoCacheFile
     
+    # Wait for remaining videos to be published
+    if [ $unpublishedVideosExist = Y ]; then
+        checkTill=$dmUploadQuitingTime
+        echo "Checking on previous uploads which did not finish publishing..."
+        checkOnPublishingVideos
+    fi
+    
     # Print info on what was done
     printStatistics
     
     # Release the lock file
     releaseInstance
     
-    # Backup the published files
+    # Backup important files
     if [ -d "$processingDirectory" ]; then
-        cp "$uploadTrackingFile" "$processingDirectory"/*.bku
-        cp "$uploadTrackingFileCSV" "$processingDirectory"/*.bku
+        bkuDir="$processingDirectory"/backup/
+        [ -d "$bkuDir" ] || mkdir "$bkuDir"
+        cp --force "$uploadTrackingFile" "$bkuDir"
+        cp --force "$uploadTrackingFileCSV" "$bkuDir"
+        cp --force "$propertiesFile" "$bkuDir"
+        cp --force "$urlsFile" "$bkuDir"
+        cp --force "$archiveFile" "$bkuDir"
     fi
     
     # record finish time
@@ -715,7 +727,6 @@ getVideoDuration() {
         rm $tmpJson
 
         # Apply Live Stream Check Delay Rules (as per properties file)
-        echo "TESTING: videoDate = $videoDate"
         if [ $videoDate -gt $delayDownloadsAfter ] && [ $videoDuration -gt $delayDownloadDuration ]; then
             echo "Skipping video id "$videoId" to allow time for trimming (uploaded on $videoDateStr )"
             echo "Video Duration:    " $(date +"%H:%M:%S" -d @$videoDuration) "("$videoDuration" seconds)"
@@ -802,12 +813,21 @@ getYouTubeInfoFromJson() {
     dmDescrTemplateNew=${uploadVideoDescrTEMPLATE//$'\n'/\\\\n}
     dmVideoDescr="$(eval echo $dmDescrTemplateNew)"
     dmVideoDescr="${dmVideoDescr//\\n/$'\n'}"
-    
+
     # Append Default tags
     if ! [ -z "$uploadVideoAppendedTags" ]; then
-        youtubeVideoTags=$uploadVideoAppendedTags
+        if [ -z "$youtubeVideoTags" ]; then
+            youtubeVideoTags=$uploadVideoAppendedTags
+        else
+            youtubeVideoTags+=","$uploadVideoAppendedTags
+        fi
+    fi
+    
+    # Prefix youtube id as tag
+    if [ -z "$youtubeVideoTags" ]; then
+        youtubeVideoTags=$ytVideoId
     else
-        youtubeVideoTags+=","$uploadVideoAppendedTags
+        youtubeVideoTags=$ytVideoId","$youtubeVideoTags
     fi
     
     # Max Description/Title Length
@@ -1131,8 +1151,13 @@ splitVideoRoutine() {
         # Correctly track count as only one video if all splits uploaded
         uploadsAfter=$totalVideosUploaded
         splitUploadsDone=$((uploadsAfter-uploadsBefore))
-        ((totalVideosRemaining+=splitUploadsDone)) # Completely discount increase in uploads
-        [ $splitUploadsDone -eq $videoSplits ] && ((totalVideosRemaining--))
+        echo "DEBUGGING: uploadsBefore=$uploadsBefore uploadsAfter=$uploadsAfter splitUploadsDone=$splitUploadsDone videoSplits=$videoSplits totalVideosRemaining=$totalVideosRemaining"
+        if [ $splitUploadsDone -eq $videoSplits ]; then
+            ((totalVideosRemaining+=splitUploadsDone-1))
+        else
+            ((totalVideosRemaining+=splitUploadsDone))
+        fi
+        echo "DEBUGGING: totalVideosRemaining=$totalVideosRemaining"
         
         # Restart timeout for duration allowance video search
         stopVideoDurationSearch=$(($(date +%s)+timeoutVideoDurationSearch))
@@ -1198,15 +1223,26 @@ prepareForUpload() {
         videoDuration=$dmMaxVideoDuration
     fi
     
+    # Skip if greater than max duration by window end
+    if [ $videoDuration -gt $remainingDurationMAX ]; then
+        echo "Skipping video ID $videoId, duration is "$(date +"%H:%M:%S" -d @$videoDuration) "("$videoDuration" seconds)"
+        recordSkipStats
+        return $ec_ContinueNext
+    fi
+    
     # Get Daily Motion Upload Limits
     dmGetLimits
     
-    # If you have to wait beyond the upload window, then skip
-    if [ -t 0 ]; then # No window open on interactive mode
-        timeTillWindowEnds=0
-    else
-        timeTillWindowEnds=$((uploadWindowEnd-$(date +%s)))
+    # Quit when the targetted remaining duration has been reached
+    if [ $remainingDurationMAX -le $targetRemainingDuration ]; then
+        echo "Reached the current window's targetted upload allowance (i.e. targetRemainingDuration)"
+        echo "This video can be picked up by the next scheduled run"
+        echo "Quitting..."
+        return $ec_BreakLoop
     fi
+    
+    # If you have to wait beyond the upload window, then skip
+    timeTillWindowEnds=$((uploadWindowEnd-$(date +%s)))
     if [ $waitingTime -gt $timeTillWindowEnds ]; then
     
         # Record skip reason
@@ -1232,19 +1268,9 @@ prepareForUpload() {
         return $ec_ContinueNext
     fi
     
-    # If you have to wait close to the next scheduled start, then quit
+    # If you have to wait close to the next scheduled start, then find another video
     timeTillQuit=$((dmUploadQuitingTime-$(date +%s)-videoDuration*2-300))
     if [ $waitingTime -gt $timeTillQuit ]; then
-        
-        # Has targetted duration been uploaded
-        if [ $remainingDuration -le $targetRemainingDuration ]; then
-            echo "This video can be picked up by the next scheduled run"
-            echo "Finished today's upload allowance window"
-            echo "Quitting..."
-            return $ec_BreakLoop
-        fi
-        
-        # Skip to next video
         echo "Checking next video..."
         recordSkipStats
         return $ec_ContinueNext
@@ -1278,6 +1304,7 @@ dmGetLimits() {
     remainingDuration=$dmDurationAllowance
     remainingVideos=$dmVideoAllowance
     remainingDailyVideos=$dmVideosPerDay
+    remainingDurationMAX=$dmDurationAllowance
     
     # Reset Return values
     recsInLastDay=
@@ -1289,6 +1316,7 @@ dmGetLimits() {
     durationLimitWaitTill=0
     dailyLimitWaitTill=0
     maxWaitTill=0
+    unpublishedVideosExist=N
     
     # Create Limits tracking file if it doesn't exist
     [ -f "$limitsTracking" ] || rebuildLimitsTrackingFile
@@ -1297,14 +1325,18 @@ dmGetLimits() {
     currentTime=$(date +%s)
     durationUploadWindow=$((currentTime-$dmDurationAllowanceExpiry))
     videoUploadWindow=$((currentTime-$dmVideoAllowanceExpiry))
+    durationUploadWindowMAX=$((uploadWindowEnd-$dmDurationAllowanceExpiry))
     
     # Review previous uploads
     readarray recs < "$limitsTracking"
     for rec in "${recs[@]}"; do
         recArr=(${rec})
         uploadTime=${recArr[0]}
+        [ -z "$uploadTime" ] && continue
         uploadDur=${recArr[1]}
-        
+        uploadId=${recArr[2]}
+        uploadStatus=${recArr[3]}
+
         # Ensure values exists
         if [ $(isNumeric $uploadTime) = N ]; then
             echo "uploadTime is non-numeric: $uploadTime $uploadDur"
@@ -1328,7 +1360,7 @@ dmGetLimits() {
             if [ -z "$recsInLastDay" ]; then
                 recsInLastDay="${recArr[@]}"
             else
-                recsInLastDay="$recsInLastDay"$'\n'"${recArr[@]}"
+                recsInLastDay+=$'\n'"${recArr[@]}"
             fi
             
             # Track Daily Limits
@@ -1336,6 +1368,16 @@ dmGetLimits() {
             if [ $oldestVideoThisDay -eq 0 ]; then
                 oldestVideoThisDay=$uploadTime
             fi
+            
+            # Track if unpublished videos exists
+            if ! [ -z "$uploadId" ] && [ "$uploadStatus" != "published" ]; then
+                unpublishedVideosExist=Y
+            fi
+        fi
+        
+        # Videos in the current upload window
+        if [ $durationUploadWindowMAX -gt 0 ] && [ $uploadTime -ge $durationUploadWindowMAX ]; then
+            remainingDurationMAX=$((remainingDurationMAX-uploadDur))
         fi
         
         # Videos in the last hour
@@ -1380,12 +1422,12 @@ dmGetLimits() {
     # Print Info
     [ $remainingDuration -lt 0 ] && remainingDuration=0
     if [ $printAllowances = Y ]; then
-        echo "Checking Upload Allowance as of " $(date)" ..."
-        echo "Current Video Duration:         " $(date +"%H:%M:%S" -d @$videoDuration) "("$videoDuration" seconds)"
-        echo "Remaining Upload Duration:      " $(date +"%H:%M:%S" -d @$remainingDuration) "("$remainingDuration" seconds)"
-        echo "Duration Uploaded so far:       " $(date +"%H:%M:%S" -d @$totalDurationUploaded) "("$totalDurationUploaded" seconds)"
-        echo "Remaining Upload Videos:        " $remainingVideos
-        echo "Remaining Daily Uploads:        " $remainingDailyVideos
+        echo "Checking upload allowance as of       " $(date)" ..."
+        echo "Current video duration:               " $(date +"%H:%M:%S" -d @$videoDuration) "("$videoDuration" seconds)"
+        echo "Remaining upload duration:            " $(date +"%H:%M:%S" -d @$remainingDuration) "("$remainingDuration" seconds)"
+        echo "Remaining upload videos:              " $remainingVideos
+        echo "Remaining daily uploads:              " $remainingDailyVideos
+        echo "Remaining duration (current window):  " $(date +"%H:%M:%S" -d @$remainingDurationMAX) "("$remainingDurationMAX" seconds)"
     fi
     
     # Default minmum wait time between uploads
@@ -1432,6 +1474,15 @@ waitForUploadAllowance() {
     [ $(isNumeric $targetTime) = N ] && targetTime=0
     [ $targetTime -gt 0 ] || targetTime=0
     
+    # Use the waiting time to check if previous video has published yet (and update with the correct published time)
+    if [ $unpublishedVideosExist = Y ]; then
+        checkTill=$((maxWaitTill-targetTime))
+        if [ $checkTill -gt $(date +%s) ]; then
+            echo "Checking on previous uploads which did not finish publishing..."
+            checkOnPublishingVideos
+        fi
+    fi
+    
     # Exit if no waiting time required
     waitingTime=$((maxWaitTill+dmExpiryToleranceTime-$(date +%s)))
     [ $waitingTime -le $targetTime ] && return $ec_Success
@@ -1446,10 +1497,53 @@ waitForUploadAllowance() {
         # Required Sleep Time
         sleepTime=$((waitingTime-targetTime))
         sleepTill=$((maxWaitTill-targetTime))
+        
+        # Warn on interactive mode
+        [ -t 0 ];        
+        
         echo "Waiting till "$(date -d @$sleepTill)", allowance available at "$(date -d @$maxWaitTill)
         sleep $sleepTime
     fi
     
+}
+
+checkOnPublishingVideos() {
+    
+    # Variable to hold replacement times
+    newFileContent=    
+    
+    # Find the unpublished videos marked on the tracking file
+    readarray recs < "$limitsTracking"
+    for rec in "${recs[@]}"; do
+        recArr=(${rec})
+        uploadTime=${recArr[0]}
+        [ -z "$uploadTime" ] && continue
+        uploadDur=${recArr[1]}
+        uploadId=${recArr[2]}
+        uploadStatus=${recArr[3]}
+        uploadLine=${recArr[@]}
+        
+        # Is still to publish?...
+        if ! [ -z "$uploadId" ] && [ "$uploadStatus" != "published" ]; then
+            waitForPublish $uploadId $checkTill
+            if [ $dmStatus = "published" ]; then
+                dmCreatedTime=$(queryJson "created_time" "$dmServerResponse") || exit 1
+                uploadLine="$dmCreatedTime $uploadDur $uploadId $dmStatus"
+            fi
+        fi
+        
+        # Concatenate new line
+        if [ -z "$newFileContent" ]; then
+            newFileContent="$uploadLine"
+        else
+            newFileContent+=$'\n'"$uploadLine"
+        fi
+        
+    done
+    
+    # Write update to tracking file
+    echo "$newFileContent" > "$limitsTracking"
+
 }
 
 waitReasonDescription() {
@@ -1581,7 +1675,6 @@ setDefaultPropteries() {
     [ -z "$youtubePlaylistReverse" ]                && youtubePlaylistReverse=N
     [ -z "$delayDownloadIfVideoIsLongerThan" ]      && delayDownloadIfVideoIsLongerThan="60 minutes"
     [ -z "$delayedVideosWillBeUploadedAfter" ]      && delayedVideosWillBeUploadedAfter="7 days"
-    [ -z "$maxTimeToWaitForUploadToPublish" ]       && maxTimeToWaitForUploadToPublish="5 minutes"
     [ -z "$targetRemainingAllowance" ]              && targetRemainingAllowance="30 seconds"
     [ -z "$durationAllowanceSearchTimeout" ]        && durationAllowanceSearchTimeout="10 minutes"
     [ -z "$mirrorVideoThumbnails" ]                 && mirrorVideoThumbnails=N
@@ -1632,8 +1725,6 @@ loadPropertiesFile() {
         echo "targetRemainingDuration:              " $targetRemainingDuration
         echo "durationAllowanceSearchTimeout:       " $durationAllowanceSearchTimeout
         echo "timeoutVideoDurationSearch:           " $timeoutVideoDurationSearch
-        echo "maxTimeToWaitForUploadToPublish:      " $maxTimeToWaitForUploadToPublish
-        echo "dmPublishingTimeout:                  " $dmPublishingTimeout
         echo "uploadVideoAppendedTags:              " $uploadVideoAppendedTags
         echo "uploadVideoWithNextVideoIdPlayback:   " $uploadVideoWithNextVideoIdPlayback
         echo "uploadVideoWithPassword:              " $uploadVideoWithPassword
@@ -1705,20 +1796,7 @@ validateProperties() {
     else
         delayDownloadsAfter=$(date +%s -d "-$delayedVideosWillBeUploadedAfter")
     fi
-    
-    # Validate the Published Timeout is a valid time
-    if [ $(isDate "$maxTimeToWaitForUploadToPublish") = N ]; then
-        printError "\"$maxTimeToWaitForUploadToPublish\" is an invalid time value for maxTimeToWaitForUploadToPublish"
-        propFailedValidation=Y
-    else
-        # Validate the Published Timeout is a positive value
-        dmPublishingTimeout=$(timeInSeconds "$maxTimeToWaitForUploadToPublish")
-        if ! [ $dmPublishingTimeout -gt 0 ]; then
-            printError "\"$maxTimeToWaitForUploadToPublish\" is not a positive value for maxTimeToWaitForUploadToPublish"
-            propFailedValidation=Y
-        fi
-    fi
-    
+
     # Convert the target allowance to a number
     if [ $(isDate "$targetRemainingAllowance") = N ]; then
         printError "\"$targetRemainingAllowance\" is an invalid time value for targetRemainingAllowance"
@@ -1854,7 +1932,7 @@ revokeDailyMotionAccess() {
     echo "dmRefreshToken=" >> "$propertiesFile"
     
     # Markup success
-    echo "Sucessfully logout out from $dmUsername"
+    echo "Successfully logout out from $dmUsername"
     
 }
 
@@ -2216,78 +2294,25 @@ uploadToDailyMotion() {
         exitRoutine
     fi
     
-    # Set upload time for limits tracking
-    uploadTime=$(date +%s)
+    # Initially track against current time (but will be updated later to the published time)
+    dmServerResponse=$(getVideoInfo $dmVideoId)
+    dmDuration=$(queryJson "duration" "$dmServerResponse") || exit 1
+    echo $(date +%s) $dmDuration $dmVideoId "waiting" >> "$limitsTracking"
     
     # Publish the video
     echo $(date)" - publishing video..."
     dmServerResponse=$(publishVideo)
     dmPublishedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
     if [ "$dmPublishedVideoId" = "null" ]; then
-    
-        # Track the duration just encase
-        echo $(date +%s) $videoDuration >> "$limitsTracking"
-        
         # Print the error for review
         raiseError "Failed publish the video ID $dmVideoId !"\
             $'\n'"Response from server:"\
             $'\n'"$(jq "." <<< "$dmServerResponse")"
     fi
     
-    # Wait for video to finish encoding/publishing 
-    waitTimeout=$(($(date +%s)+dmPublishingTimeout))
-    until [ $(date +%s) -gt $waitTimeout ]; do
-        
-        # Query video info
-        dmServerResponse=$(curl --silent \
-            --header "Authorization: Bearer ${dmAccessToken}" \
-            --data "fields=created_time,status,encoding_progress,publishing_progress,published,duration,explicit,url" \
-            https://api.dailymotion.com/video/$dmVideoId
-        )
-        dmStatus=$(queryJson "status" "$dmServerResponse") || exit 1
-        
-        # Quit loop on unexpected status (or published)
-        [ $dmStatus != "waiting" ] && \
-        [ $dmStatus != "processing" ] && \
-        [ $dmStatus != "ready" ] && break
-        
-        sleep 30
-    done
-    
-    # Double-check video is published
-    if [ $dmStatus != "published" ]; then
-        dmEncodingPC=$(queryJson "encoding_progress" "$dmServerResponse") || exit 1
-        dmPublishingPC=$(queryJson "publishing_progress" "$dmServerResponse") || exit 1
-        echo $(date)" - Timed-out before video finished publishing!..."
-        echo "Status:              " $dmStatus
-        echo "Encoding Progress:   " $dmEncodingPC"%"
-        echo "Publishing Progress: " $dmPublishingPC"%"
-        echo "You can increase the timeout on your .prop file (maxTimeToWaitForUploadToPublish)"
-    else 
-        echo $(date)" - Successfully uploaded $videoTitle"
-    fi
-    
-    # Track against time after published and dm duration
-    #dmDuration=$(queryJson "duration" "$dmServerResponse") || exit 1
-    #echo $uploadTime $dmDuration >> "$limitsTracking"
-    #### LIMITS WERE EXCEEDED WHEN USING THE ABOVE METHOD!!??
-    
-    # Track against max time and duration
-    dmCreatedTime=$(queryJson "created_time" "$dmServerResponse") || exit 1
-    dmDuration=$(queryJson "duration" "$dmServerResponse") || exit 1
-    [ $dmCreatedTime -gt $uploadTime ] && uploadTime=$dmCreatedTime
-    [ $dmDuration -gt $videoDuration ] && videoDuration=$dmDuration
-    echo $uploadTime $videoDuration >> "$limitsTracking"
-    
     # Update upload statistics
     ((totalVideosUploaded++))
     ((totalDurationUploaded+=videoDuration))
-    
-    # Warn if video was flagged as Explicit
-    dmExplicit=$(queryJson "explicit" "$dmServerResponse") || exit 1
-    if [ "$dmExplicit" = "true" ]; then
-        echo "WARNING: This video has been flagged as Explicit by dailymotion.com!"
-    fi
     
     # Record upload to json file
     jq -n -c \
@@ -2306,14 +2331,11 @@ uploadToDailyMotion() {
     echo "\"$ytVideoId\",\"$dmVideoId\",$videoDuration"",""$videoPart"",\"$videoTitle\"" >> "$uploadTrackingFileCSV"
 
     # Delete local files
-    echo $(date)" - deleting local files"
     rm --force "./$videoFilePath"
     rm --force "./$videoJson"
     
-    # Get url of current part
-    dmVideoUrl=$(queryJson "url" "$dmServerResponse") || exit 1
-    
     # Update previous part with link to this part
+    dmVideoUrl=$(queryJson "url" "$dmServerResponse") || exit 1
     addLinkToPrevVideoPart
     
 }
@@ -2335,6 +2357,66 @@ publishVideo() {
         ${uploadVideoAsCountryCode:+ --data "country=$uploadVideoAsCountryCode"} \
         https://api.dailymotion.com/video/$dmVideoId
         
+}
+
+getVideoInfo() {
+
+    curl --silent \
+        --header "Authorization: Bearer ${dmAccessToken}" \
+        --data "fields=created_time,status,encoding_progress,publishing_progress,published,duration,explicit,url,title" \
+        https://api.dailymotion.com/video/$1
+
+}
+
+waitForPublish() {
+
+    # Inputs
+    dmVideoId=$1
+    publishWaitTill=$2
+    
+    # Check id is valid
+    dmServerResponse=$(getVideoInfo $dmVideoId)
+    dmIdCheck=$(queryJson "id" "$dmServerResponse") || exit 1
+    if [ "dmIdCheck" = "null" ]; then
+        raiseError "Invalid video ID $dmVideoId !"\
+            $'\n'"Response from server:"\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Wait for video to finish encoding/publishing 
+    until [ $(date +%s) -gt $publishWaitTill ]; do
+        
+        # Query video info
+        dmServerResponse=$(getVideoInfo $dmVideoId)
+        dmStatus=$(queryJson "status" "$dmServerResponse") || exit 1
+        
+        # Quit loop on unexpected status (or published)
+        [ $dmStatus != "waiting" ] && \
+        [ $dmStatus != "processing" ] && \
+        [ $dmStatus != "ready" ] && break
+        
+        sleep 30
+    done
+    
+    # Double-check video is published
+    videoTitle=$(queryJson "title" "$dmServerResponse") || exit 1
+    if [ $dmStatus != "published" ]; then
+        dmEncodingPC=$(queryJson "encoding_progress" "$dmServerResponse") || exit 1
+        dmPublishingPC=$(queryJson "publishing_progress" "$dmServerResponse") || exit 1
+        echo "Video ID $dmVideoId is still not published! - $videoTitle"
+        echo "Status:              " $dmStatus
+        echo "Encoding Progress:   " $dmEncodingPC"%"
+        echo "Publishing Progress: " $dmPublishingPC"%"
+    else 
+        echo "Successfully published $videoTitle"
+    fi
+
+    # Warn if video was flagged as Explicit
+    dmExplicit=$(queryJson "explicit" "$dmServerResponse") || exit 1
+    if [ "$dmExplicit" = "true" ]; then
+        echo "WARNING: Video ID $dmVideoId was flagged as Explicit! - $videoTitle"
+    fi
+
 }
 
 uploadChannelArt() {
@@ -2413,7 +2495,7 @@ addLinkToPrevVideoPart() {
     # Exit if next part has already been set
     prevDmNextId=$(queryJson "player_next_video" "$dmServerResponse") || exit 1
     if [ "$prevDmNextId" = "$dmVideoId" ]; then
-        echo "Previous video already has link.  Cancelling edit"
+        echo "Previous video already has link.  Canceled edit"
         return $ec_Error
     fi
     
@@ -2434,7 +2516,7 @@ addLinkToPrevVideoPart() {
             $'\n'"Response from server:"\
             $'\n'"$(jq "." <<< "$dmServerResponse")"
     fi
-    echo "Sucessfully edited video id $dmEditedVideoId"
+    echo "Successfully edited video id $dmEditedVideoId"
 
 }
 
@@ -2548,7 +2630,7 @@ dmQueryUploadInAllowancePeriod() {
             if [ $formatReadable = Y ]; then
                 echo $dmVideoId $(date -d @$dmCreatedTime) $(date +"%H:%M:%S" -d @$dmDuration) "("$dmDuration")" $dmStatus
             else
-                echo $dmCreatedTime $dmDuration
+                echo $dmCreatedTime $dmDuration $dmVideoId $dmStatus
             fi      
         done
     done
@@ -2722,12 +2804,6 @@ blankPropFile() {
     echo "delayedVideosWillBeUploadedAfter=\"$delayedVideosWillBeUploadedAfter\""
     echo ""
     echo ""
-    echo "# (REQUIRED) How long to wait for dailymotion to process an uploaded video before timing out and continuing to the next video"
-    echo "# (Enter a low value if you care more about uploading lots of videos in a short time span)"
-    echo "# (Enter a higher value if your account is being locked out for exceeding upload allowances)" 
-    echo "maxTimeToWaitForUploadToPublish=\"$maxTimeToWaitForUploadToPublish\""
-    echo ""
-    echo ""
     echo "# (REQUIRED) The targetted upload duration allowance to have remaining before the script quits and waits for next scheduled run"
     echo "targetRemainingAllowance=$targetRemainingAllowance"
     echo ""
@@ -2788,7 +2864,7 @@ stopCronSchedule() {
     rootRequired
 
     # Delete the cron job file
-    rm $cronJobFile
+    sudo rm $cronJobFile
 
 }
 
@@ -2812,8 +2888,8 @@ editCronFile() {
     nano --syntax=awk --mouse $tmpCronFile
     
     # Copy to Cron Dir
-    cp $tmpCronFile $cronJobFile || exit 1
-    chmod 644 $cronJobFile || exit 1
+    sudo cp $tmpCronFile $cronJobFile || exit 1
+    sudo chmod 644 $cronJobFile || exit 1
     
     # Remove temp file
     rm $tmpCronFile
@@ -2846,23 +2922,31 @@ blankCronFile() {
 updateSourceCode() {
     
     # Sudo Access required    
-    rootRequired
+    #rootRequired
     
     # Are you sure? 
     promptYesNo "Are you sure you want update this script?"
     [ $? -eq $ec_Yes ] || exit
     
     # Backup copy
-    cp "$scriptFile/$scriptFile" "$scriptFile/$scriptFile.bku"
+    cp "$scriptDir/$scriptFile" "$scriptDir/$scriptFile.bku"
     
     # Download latest source code
-    wget $selfSourceCode --output-document "$scriptFile/$scriptFile.tmp"
+    tmpFile=$(mktemp)
+    wget $selfSourceCode --output-document $tmpFile
     if [ $? -ne $ec_Success ]; then
         raiseError "Failed to download the source code!?"
     fi
     
     # Copy to self
-    cp "$scriptFile/$scriptFile.tmp" "$scriptFile/$scriptFile"
+    mv $tmpFile "$scriptDir/$scriptFile"
+    if [ $? -ne $ec_Success ]; then
+        rm $tmpFile
+        raiseError "Failed copy over the new source code!?"
+    else
+        echo ""
+        echo "Successfully update code to latest release"
+    fi
 
 }
 
@@ -2882,9 +2966,12 @@ procedureSelection() {
                 main > "$logFile" 2>&1
                     
                 # Archive the log
+                echo "DEBUGGING optKeepLogFile=$optKeepLogFile" >> "$logFile" 2>&1
                 if [ $optKeepLogFile = Y ]; then
+                    echo "DEBUGGING outputDir=$outputDir" >> "$logFile" 2>&1
                     if [ -d "$outputDir" ]; then
-                        logArchiveDir="$outputDir/logs"
+                        echo "DEBUGGING attempting copy log" >> "$logFile" 2>&1
+                        logArchiveDir="$outputDir"/logs
                         [ -d "$logArchiveDir" ] || mkdir "$logArchiveDir"
                         cp "$logFile" "$logArchiveDir/$logArchive"
                     fi
