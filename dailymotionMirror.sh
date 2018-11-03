@@ -634,6 +634,8 @@ exitRoutine() {
     clearVideoCacheFile
     
     # Wait for remaining videos to be published
+    videoDuration=0
+    dmGetLimits --do-not-print
     if [ $unpublishedVideosExist = Y ]; then
         checkTill=$dmUploadQuitingTime
         echo "Checking on previous uploads which did not finish publishing..."
@@ -1559,7 +1561,6 @@ waitReasonDescription() {
 
 }
 
-
 dailyMotionFirstTimeSetup() {
     
     # Info
@@ -2336,6 +2337,7 @@ uploadToDailyMotion() {
     
     # Update previous part with link to this part
     dmVideoUrl=$(queryJson "url" "$dmServerResponse") || exit 1
+    echo "DEBUGGING: dmVideoUrl: $dmVideoUrl"
     addLinkToPrevVideoPart
     
 }
@@ -2348,7 +2350,7 @@ publishVideo() {
         --data "published=true" \
         --data "channel=$uploadVideoInCategory" \
         --data-urlencode "title=$videoTitle" \
-        ${dmVideoDescr:+ --data-urlencode "tags=$dmVideoDescr"} \
+        ${dmVideoDescr:+ --data-urlencode "description=$dmVideoDescr"} \
         ${youtubeVideoTags:+ --data-urlencode "tags=$youtubeVideoTags"} \
         ${uploadVideoWithNextVideoIdPlayback:+ --data-urlencode "player_next_video=$uploadVideoWithNextVideoIdPlayback"} \
         ${uploadVideoWithPassword:+ --data-urlencode "password=$uploadVideoWithPassword"} \
@@ -2399,22 +2401,22 @@ waitForPublish() {
     done
     
     # Double-check video is published
-    videoTitle=$(queryJson "title" "$dmServerResponse") || exit 1
+    dmVideoTitle=$(queryJson "title" "$dmServerResponse") || exit 1
     if [ $dmStatus != "published" ]; then
         dmEncodingPC=$(queryJson "encoding_progress" "$dmServerResponse") || exit 1
         dmPublishingPC=$(queryJson "publishing_progress" "$dmServerResponse") || exit 1
-        echo "Video ID $dmVideoId is still not published! - $videoTitle"
+        echo "Video ID $dmVideoId is still not published! - $dmVideoTitle"
         echo "Status:              " $dmStatus
         echo "Encoding Progress:   " $dmEncodingPC"%"
         echo "Publishing Progress: " $dmPublishingPC"%"
     else 
-        echo "Successfully published $videoTitle"
+        echo "Successfully published $dmVideoTitle"
     fi
 
     # Warn if video was flagged as Explicit
     dmExplicit=$(queryJson "explicit" "$dmServerResponse") || exit 1
     if [ "$dmExplicit" = "true" ]; then
-        echo "WARNING: Video ID $dmVideoId was flagged as Explicit! - $videoTitle"
+        echo "WARNING: Video ID $dmVideoId was flagged as Explicit! - $dmVideoTitle"
     fi
 
 }
@@ -2507,7 +2509,7 @@ addLinkToPrevVideoPart() {
     dmServerResponse=$(curl --silent --request POST \
         --header "Authorization: Bearer ${dmAccessToken}" \
         --data-urlencode "description=$prevDmDescr" \
-        --data-urlencode "player_next_video=${dmVideoId}"} \
+        --data-urlencode "player_next_video=${dmVideoId}" \
         https://api.dailymotion.com/video/$prevDmId
     )
     dmEditedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
