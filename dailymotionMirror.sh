@@ -51,10 +51,10 @@ setConstants() {
     instanceLockFile=$scriptDir/.$scriptName.pid
     propertiesFile=$scriptDir/$scriptName.prop    
     urlsFile=$scriptDir/$scriptName.urls
-    videoListFile=$scriptDir/.playlist.txt
-    videoCacheFile=$scriptDir/.videoCache.txt       
-    archiveFile=$scriptDir/.downloaded.txt          
-    limitsTracking=$scriptDir/.uploadUsage.txt      
+    videoListFile=$scriptDir/.playlist
+    videoCacheFile=$scriptDir/.cache     
+    archiveFile=$scriptDir/.downloaded       
+    limitsTracking=$scriptDir/.allowance
     uploadTrackingFile=$scriptDir/published.json
     uploadTrackingFileCSV=$scriptDir/published.csv
     logFile=$scriptDir/$scriptName.log
@@ -127,7 +127,7 @@ installDependencies() {
         [ $? -eq $ec_Yes ] || exit
         
         # Install Required Packages
-        sudo apt-get install libav-tools curl cron jq || exit 1
+        sudo apt-get install libav-tools curl cron jq
         
     fi
     
@@ -144,8 +144,8 @@ installDependencies() {
         [ $? -eq $ec_Yes ] || exit
         
         # Install Youtube-dl
-        sudo wget $ytdlSource --output-document $ytdl || exit 1
-        sudo chmod a+rx $ytdl || exit 1
+        sudo wget $ytdlSource --output-document $ytdl
+        sudo chmod a+rx $ytdl
         
     fi
 
@@ -2880,7 +2880,7 @@ editCronFile() {
     
     # Copy existing job
     if [ -f $cronJobFile ]; then
-        cp $cronJobFile $tmpCronFile || exit 1
+        cp $cronJobFile $tmpCronFile
     else
         # Create new cron file
         blankCronFile > $tmpCronFile
@@ -2948,7 +2948,7 @@ updateSourceCode() {
     fi
     
     # Set correct permissions
-    sudo chmod 755 "$scriptDir/$scriptFile" || exit 1    
+    sudo chmod 755 "$scriptDir/$scriptFile"   
     if [ $? -ne $ec_Success ]; then
         raiseError "Failed to set executable rights to the script file!?"
     fi
