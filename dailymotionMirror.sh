@@ -12,6 +12,7 @@ initialization() {
     # Standard Exit Codes Enum
     ec_Success=0
     ec_Error=1
+    ec_Error=1
     
     # Get the source of the current script
     #calledBy="$(ps -o comm= $PPID)"
@@ -484,7 +485,8 @@ function isDate() {
 
 # Function convert a time string to number of seconds
 function timeInSeconds() {
-    echo $(($(date +%s -d "+$@")-$(date +%s)))
+    #echo $(($(date +%s -d "+$@")-$(date +%s)))
+    echo $(date +%s -d "$(date +%F -d "@0") +$@")
 }
 
 # function to prompt user for yes/no response
@@ -1310,7 +1312,7 @@ dmTrackAllowance() {
     ((uploadTime+=dmTimeOffset))
     
     # Write to file
-    echo $uploadTime $@ > "$allowanceFile"
+    echo $uploadTime $@ >> "$allowanceFile"
 
 }
 
