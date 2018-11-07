@@ -16,7 +16,7 @@ initialization() {
     # Get the source of the current script
     #calledBy="$(ps -o comm= $PPID)"
     scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-    scriptFile=$(basename $0)
+    scriptFile=$(basename "$0")
     scriptName=${scriptFile%.*}
     
     # Get/Set Program Constants
@@ -241,6 +241,7 @@ inputArguments() {
     optAllowMultiInstances=N
     optUploadAvatarImage=
     optUploadBannerImage=
+    optSkipStartupChecks=N
     
     # Loop Program's Input Agruments
     for i in $arguments; do
@@ -257,6 +258,7 @@ inputArguments() {
             ;;
         --first-time-setup)
             setRunProcedure $co_firstTimeSetup
+            optSkipStartupChecks=Y
             ;;
         --grant-access)
             setRunProcedure $co_dailymotionLoginNew
@@ -324,6 +326,7 @@ inputArguments() {
             ;;
         --update)
             setRunProcedure $co_updateSourceCode
+            optSkipStartupChecks=Y
             ;;
         --dev-test-code)
             setRunProcedure $co_devTestCode
@@ -1294,7 +1297,6 @@ prepareForUpload() {
     # Quit when the targetted remaining duration has been reached
     if [ $remainingDurationMAX -le $targetRemainingDuration ]; then
         echo "Reached the current window's targetted upload allowance (i.e. targetRemainingDuration)"
-        echo "This video can be picked up by the next scheduled run"
         echo "Quitting..."
         return $ec_BreakLoop
     fi
@@ -1436,7 +1438,7 @@ dmGetAllowance() {
             fi
             
             # Track Daily Limits
-            remainingDailyVideos=$((remainingDailyVideos-1))
+            ((remainingDailyVideos-=1))
             if [ $oldestVideoThisDay -eq 0 ]; then
                 oldestVideoThisDay=$uploadTime
             fi
@@ -1454,7 +1456,7 @@ dmGetAllowance() {
         
         # Videos in the last hour
         if [ $uploadTime -ge $videoUploadWindow ]; then
-            remainingVideos=$((remainingVideos-1))
+            ((remainingVideos-=1))
             if [ $oldestVideoThisHour -eq 0 ]; then
                 oldestVideoThisHour=$uploadTime
             fi
@@ -1553,6 +1555,7 @@ waitForUploadAllowance() {
     if [ $unpublishedVideosExist = Y ]; then
         checkTill=$((maxWaitTill-targetTime))
         if [ $checkTill -gt $(date +%s) ]; then
+            echo "Have to wait for allowance restrictions to pass due to "$(waitReasonDescription $waitingForType)
             checkOnPublishingVideos
         fi
     fi
@@ -1584,10 +1587,13 @@ waitForUploadAllowance() {
 checkOnPublishingVideos() {
     
     # Info
-    echo "::::" $(date) "- Checking on previous uploads which did not finish publishing..."
+    echo ":::: $(date) - Checking on previous uploads which did not finish publishing..."
     
     # Variable to hold replacement times
-    newFileContent=    
+    newFileContent=
+    
+    # Reset unpublished check
+    unpublishedVideosExist=N
     
     # Find the unpublished videos marked on the tracking file
     readarray recs < "$allowanceFile"
@@ -1613,6 +1619,7 @@ checkOnPublishingVideos() {
                 checkTime=$(date +%s)
                 ((checkTime+=dmTimeOffset))
                 uploadLine="$checkTime $uploadDur $uploadId $dmStatus"
+                unpublishedVideosExist=Y
             fi
         fi
         
@@ -3164,5 +3171,5 @@ procedureSelection() {
 # Start up program
 arguments=$@
 initialization
-startupChecks
+[ $optSkipStartupChecks = Y] || startupChecks
 procedureSelection
