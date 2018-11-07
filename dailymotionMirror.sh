@@ -12,7 +12,6 @@ initialization() {
     # Standard Exit Codes Enum
     ec_Success=0
     ec_Error=1
-    ec_Error=1
     
     # Get the source of the current script
     #calledBy="$(ps -o comm= $PPID)"
@@ -111,15 +110,13 @@ installDependencies() {
     installRequired=N    
     
     # Check if all packages already installed
-    if [ -z $(command -v avconv) ] \
-    || [ -z $(command -v curl) ] \
+    if [ -z $(command -v curl) ] \
     || [ -z $(command -v crontab) ] \
     || [ -z $(command -v jq) ]; then
         
         # User Confirm
         installRequired=Y
         echo "The following packages will be install on your device (if not already there)..."
-        echo "    libav-tools   - used for splitting videos to fit max video size"
         echo "    curl          - used for talking with the dailymotion api"
         echo "    cron          - used to schedule this script to run automatically"
         echo "    jq            - used interpret the json formatted returned from dailymotion"
@@ -128,7 +125,30 @@ installDependencies() {
         [ $? -eq $ec_Yes ] || exit
         
         # Install Required Packages
-        sudo apt-get install libav-tools curl cron jq
+        sudo apt-get install curl cron jq || exit 1
+        
+    fi
+    
+    # Check if either avconv or ffmpeg is installed
+    if [ -z $(command -v avconv) ] && [ -z $(command -v ffmpeg) ]; then
+        
+        # User Confirm
+        installRequired=Y
+        echo "Your system requires at least one of the following packages..."
+        echo "    ffmpeg        - used for splitting videos to fit max video size"
+        echo "    libav-tools   - used for splitting videos to fit max video size"
+        echo "Your system may only support one of these, so both will be attempted..."
+        echo ""
+        promptYesNo "Are you happy to continue?..."
+        [ $? -eq $ec_Yes ] || exit
+        
+        # Try install ffmpeg
+        sudo apt-get install ffmpeg
+        
+        # Try install avconv if that failed
+        if [ $? -ne $ec_Sucess ]; then
+            sudo apt-get install libav-tools || exit 1
+        fi
         
     fi
     
@@ -145,11 +165,33 @@ installDependencies() {
         [ $? -eq $ec_Yes ] || exit
         
         # Install Youtube-dl
-        sudo wget $ytdlSource --output-document $ytdl
-        sudo chmod a+rx $ytdl
+        sudo wget $ytdlSource --output-document $ytdl || exit 1
+        sudo chmod a+rx $ytdl || exit 1
         
     fi
 
+}
+
+startupChecks() {
+
+    # Check if first time setup required (if no .prop file)
+    if ! [ -f "$propertiesFile" ]; then
+        dailyMotionFirstTimeSetup
+        releaseInstance        
+        exit
+    fi
+    
+    # Ensure required packages exist
+    [ -f $ytdl ]                    || raiseError "youtube-dl command not found!  Please install"
+    [ -z $(command -v curl) ]       && raiseError "curl command not found!  Please install"
+    [ -z $(command -v jq) ]         && raiseError "jq command not found!  Please install"
+    [ -z $(command -v crontab) ]    && raiseError "crontab command not found!  Please install"
+    [ -z $(command -v avconv) ] && [ -z $(command -v ffmpeg) ] && raiseError "ffmpeg or avconv commands not found!  Please install"
+    
+    # Markup if using ffmpeg
+    useFFMPEG=N
+    [ -z $(command -v ffmpeg) ] || useFFMPEG=Y
+    
 }
 
 setRunProcedure() {
@@ -559,16 +601,9 @@ main() {
     # Check if existing process running this script
     [ $optAllowMultiInstances = Y ] || exitOnExistingInstance
     
-    # Check if first time setup required (if no .prop file)
-    if ! [ -f "$propertiesFile" ]; then
-        dailyMotionFirstTimeSetup
-        releaseInstance        
-        exit
-    fi
-    
     # Record start time
     mainStartTime=$(date +%s)
-    echo "Start date time:                      " $(date +"%Y-%m-%d %H:%M:%S")
+    echo "Start date time:                      " $(date +"%F %T")
     
     # Check required files exist
     [ -f "$urlsFile" ] || raiseError "urls file not found! $urlsFile"
@@ -662,7 +697,7 @@ exitRoutine() {
     
     # Record finish time
     echo ""
-    echo finished $(date +"%Y-%m-%d %H:%M:%S")
+    echo finished $(date +"%F %T")
     
     # Archive the log
     if ! [ -t 0 ] && [ $optKeepLogFile = Y ] && [ -d "$outputDir" ]; then
@@ -693,12 +728,12 @@ recordSkipStats() {
 
 printStatistics() {
     echo "***********************************************************"
-    echo "**** Upload Statistics for session on $(date +"%Y-%m-%d") **********"
+    echo "**** Upload Statistics for session on $(date +"%F") **********"
     echo "***********************************************************"
     echo "***********************************************************"
     echo "**** Remaining Videos to be uploaded:  " $((totalVideosRemaining-totalVideosUploaded))
     echo "**** Videos Uploaded this sessions:    " $totalVideosUploaded
-    echo "**** Total Duration Uploaded:          " $(date +"%H:%M:%S" -d @$totalDurationUploaded) "("$totalDurationUploaded" seconds)"
+    echo "**** Total Duration Uploaded:          " $(date +"T" -d @$totalDurationUploaded) "("$totalDurationUploaded" seconds)"
     echo "**** Videos Skipped:                   " $totalVideosSkipped
     echo "**** Total Duration of Skipped Videos: " $((totalDurationSkipped/60/60))"h "$(date +"%Mm %Ss" -d @$totalDurationSkipped) "("$totalDurationSkipped" seconds)"
     echo "**** Total Time Taken:                 " $(date +"%Hh %Mm %Ss" -d "-$mainStartTime seconds")
@@ -739,7 +774,7 @@ getVideoDuration() {
         # Apply Live Stream Check Delay Rules (as per properties file)
         if [ $videoDate -gt $delayDownloadsAfter ] && [ $videoDuration -gt $delayDownloadDuration ]; then
             echo "Skipping video id "$videoId" to allow time for trimming (uploaded on $videoDateStr )"
-            echo "Video Duration:    " $(date +"%H:%M:%S" -d @$videoDuration) "("$videoDuration" seconds)"
+            echo "Video Duration:    " $(date +%T -d @$videoDuration) "("$videoDuration" seconds)"
             recordSkipStats
             return $ec_ContinueNext
         fi
@@ -1085,7 +1120,7 @@ splitVideoRoutine() {
         
         # Work out Split Size
         minSplitDuration=$((videoDuration/videoSplits+1))
-        echo "Video Split Duration:      " $(date +"%H:%M:%S" -d @$minSplitDuration) "("$minSplitDuration" seconds)"
+        echo "Video Split Duration:      " $(date +%T -d @$minSplitDuration) "("$minSplitDuration" seconds)"
         
         # Split video and create new jsons
         previousSplit=0
@@ -1125,13 +1160,23 @@ splitVideoRoutine() {
             fi
             
             # Split the video
-            avconv -loglevel error \
-                -ss $previousSplit \
-                -i "$videoFilePath" \
-                -t $minSplitDuration \
-                -c copy \
-                -map 0 \
-                "$splitFilename.$videoExt"
+            if [ $useFFMPEG = Y ]; then
+                ffmpeg -loglevel error \
+                    -ss $previousSplit \
+                    -i "$videoFilePath" \
+                    -t $minSplitDuration \
+                    -c copy \
+                    -map 0 \
+                    "$splitFilename.$videoExt"
+            else 
+                avconv -loglevel error \
+                    -ss $previousSplit \
+                    -i "$videoFilePath" \
+                    -t $minSplitDuration \
+                    -c copy \
+                    -map 0 \
+                    "$splitFilename.$videoExt"
+            fi
             
             # Skip on error
             if [ $? -ne 0 ]; then
@@ -1206,7 +1251,7 @@ prepareForUpload() {
     
     # Skip right away if greater than last skipped duration
     if [ $minSkippedDuration -gt 0 ] && [ $videoDuration -gt $minSkippedDuration ]; then
-        echo "Skipping video ID $videoId, duration is "$(date +"%H:%M:%S" -d @$videoDuration) "("$videoDuration" seconds)"
+        echo "Skipping video ID $videoId, duration is "$(date +%T -d @$videoDuration) "("$videoDuration" seconds)"
         recordSkipStats
         return $ec_ContinueNext
     fi
@@ -1226,7 +1271,7 @@ prepareForUpload() {
         videoSplits=$((videoDuration/dmMaxVideoDuration+1))
         
         # Print Full Duration Info
-        echo "Current Video Duration:    " $(date +"%H:%M:%S" -d @$videoDuration) "("$videoDuration" seconds)"
+        echo "Current Video Duration:               " $(date +%T -d @$videoDuration) "("$videoDuration" seconds)"
         
         # Query the limits based on max upload size (don't use min size to avoid it priortising split videos over smaller ones)
         echo "Query upload limits based on max video duration size..."
@@ -1235,7 +1280,7 @@ prepareForUpload() {
     
     # Skip if greater than max duration by window end
     if [ $videoDuration -gt $remainingDurationMAX ]; then
-        echo "Skipping video ID $videoId, duration is "$(date +"%H:%M:%S" -d @$videoDuration) "("$videoDuration" seconds)"
+        echo "Skipping video ID $videoId, duration is "$(date +%T -d @$videoDuration) "("$videoDuration" seconds)"
         if [ $videoDuration -lt $minSkippedDuration ] || [ $minSkippedDuration -eq 0 ]; then
             minSkippedDuration=$videoDuration
         fi
@@ -1373,7 +1418,7 @@ dmGetAllowance() {
         
         # Print full times for debugging
         if [ $optDebug = Y ]; then
-            echo $(date -d @$uploadTime) $(date +"%H:%M:%S" -d @$uploadDur) "("$uploadDur")"
+            echo $(date -d @$uploadTime) $(date +%T -d @$uploadDur) "("$uploadDur")"
         fi
         
         # Convert server time to local time
@@ -1453,11 +1498,11 @@ dmGetAllowance() {
     [ $remainingDuration -lt 0 ] && remainingDuration=0
     if [ $printAllowances = Y ]; then
         echo "Checking upload allowance as of       " $(date)" ..."
-        echo "Current video duration:               " $(date +"%H:%M:%S" -d @$videoDuration) "("$videoDuration" seconds)"
-        echo "Remaining upload duration:            " $(date +"%H:%M:%S" -d @$remainingDuration) "("$remainingDuration" seconds)"
+        echo "Current video duration:               " $(date +%T -d @$videoDuration) "("$videoDuration" seconds)"
+        echo "Remaining upload duration:            " $(date +%T -d @$remainingDuration) "("$remainingDuration" seconds)"
         echo "Remaining upload videos:              " $remainingVideos
         echo "Remaining daily uploads:              " $remainingDailyVideos
-        echo "Remaining duration (current window):  " $(date +"%H:%M:%S" -d @$remainingDurationMAX) "("$remainingDurationMAX" seconds)"
+        echo "Remaining duration (current window):  " $(date +%T -d @$remainingDurationMAX) "("$remainingDurationMAX" seconds)"
     fi
     
     # Default minimum wait time between uploads
@@ -2670,7 +2715,7 @@ dmQueryUploadInAllowancePeriod() {
             
             # echo results
             if [ $formatReadable = Y ]; then
-                echo $dmVideoId $(date -d @$dmCreatedTime) $(date +"%H:%M:%S" -d @$dmDuration) "("$dmDuration")" $dmStatus
+                echo $dmVideoId $(date -d @$dmCreatedTime) $(date +%T -d @$dmDuration) "("$dmDuration")" $dmStatus
             else
                 echo $dmCreatedTime $dmDuration $dmVideoId $dmStatus
             fi      
@@ -2693,11 +2738,6 @@ showUploadsDoneToday() {
         echo ""
         echo "Next upload allowance will be freed at "$(date -d @$maxWaitTill)
     fi
-    
-    # Print info on time offset with server
-    echo ""
-    checkServerTimeOffset
-    echo ""
     
 }
 
@@ -3124,4 +3164,5 @@ procedureSelection() {
 # Start up program
 arguments=$@
 initialization
+startupChecks
 procedureSelection
