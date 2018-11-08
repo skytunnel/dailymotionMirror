@@ -146,7 +146,7 @@ installDependencies() {
         sudo apt-get install ffmpeg
         
         # Try install avconv if that failed
-        if [ $? -ne $ec_Sucess ]; then
+        if [ $? -ne $ec_Success ]; then
             sudo apt-get install libav-tools || exit 1
         fi
         
