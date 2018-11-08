@@ -2894,7 +2894,7 @@ blankPropFile() {
     echo ""
     echo ""
     echo "# (REQUIRED) The targetted upload duration allowance to have remaining before the script quits and waits for next scheduled run"
-    echo "targetRemainingAllowance=$targetRemainingAllowance"
+    echo "targetRemainingAllowance=\"$targetRemainingAllowance\""
     echo ""
     echo ""
     echo "# (REQUIRED) Time to spend searching for videos to fit the remaining duration allowance before quitting (note checking echo video takes about 30-60 seconds)"
