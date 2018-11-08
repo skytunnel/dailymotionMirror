@@ -1330,12 +1330,13 @@ prepareForUpload() {
         return $ec_ContinueNext
     fi
     
-    # If you have to wait close to the next scheduled start, then find another video
-    timeTillQuit=$((dmUploadQuitingTime-$(date +%s)-videoDuration*2-300))
+    # If you have to wait close to the next scheduled start, then let that run pick up this video
+    timeTillQuit=$((dmUploadQuitingTime-$(date +%s)))
     if [ $waitingTime -gt $timeTillQuit ]; then
-        echo "Checking next video..."
+        echo "Video should be picked up by next scheduled run..."
+        echo "Quitting..."
         recordSkipStats
-        return $ec_ContinueNext
+        return $ec_BreakLoop
     fi
     
 }
