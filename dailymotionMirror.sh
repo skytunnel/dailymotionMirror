@@ -618,7 +618,9 @@ main() {
     
     # Determine when the next 24 hour upload period begins
     videoDuration=0
-    dmGetAllowance --do-not-print
+    oldestVideoThisHour=0
+    oldestVideoThisDay=0
+    [ -f "$allowanceFile" ] && dmGetAllowance --do-not-print
     uploadWindowStart=$mainStartTime
     if [ $oldestVideoThisHour -gt 0 ]; then
         uploadWindowStart=$((oldestVideoThisHour-300))
@@ -1706,7 +1708,7 @@ dailyMotionFirstTimeSetup() {
     initializeDailyMotion
             
     # Create usage file from uploads to account info
-    rebuildAllowanceFile
+    [ -f "$allowanceFile" ] || rebuildAllowanceFile
     
     # Create Cron Job Schedule
     echo ""
