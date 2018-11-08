@@ -2828,7 +2828,7 @@ blankUrlsFile() {
     echo "# You can return to this screen using the command option: $scriptFile --edit-urls"
     echo "# Press Ctrl+X to exit, then type Y then Enter to save your changes"
     echo "# (put each url on it's own line)"
-    echo "**********************"
+    echo "#*********************"
     echo ""
     echo ""
     
