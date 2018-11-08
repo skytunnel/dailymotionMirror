@@ -738,7 +738,7 @@ printStatistics() {
     echo "***********************************************************"
     echo "**** Remaining Videos to be uploaded:  " $((totalVideosRemaining-totalVideosUploaded))
     echo "**** Videos Uploaded this sessions:    " $totalVideosUploaded
-    echo "**** Total Duration Uploaded:          " $(date +"T" -d @$totalDurationUploaded) "("$totalDurationUploaded" seconds)"
+    echo "**** Total Duration Uploaded:          " $(date +%T -d @$totalDurationUploaded) "("$totalDurationUploaded" seconds)"
     echo "**** Videos Skipped:                   " $totalVideosSkipped
     echo "**** Total Duration of Skipped Videos: " $((totalDurationSkipped/60/60))"h "$(date +"%Mm %Ss" -d @$totalDurationSkipped) "("$totalDurationSkipped" seconds)"
     echo "**** Total Time Taken:                 " $(date +"%Hh %Mm %Ss" -d "-$mainStartTime seconds")
