@@ -531,7 +531,7 @@ function isDate() {
 # Function convert a time string to number of seconds
 function timeInSeconds() {
     #echo $(($(date +%s -d "+$@")-$(date +%s)))
-    echo $(date +%s -d "$(date +%F -d "@0") +$@")
+    echo $(date +%s -d "$(date +'%F %T %Z' -d "@0") +$@")
 }
 
 # function to prompt user for yes/no response
