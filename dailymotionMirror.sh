@@ -3171,5 +3171,5 @@ procedureSelection() {
 # Start up program
 arguments=$@
 initialization
-[ $optSkipStartupChecks = Y] || startupChecks
+[ $optSkipStartupChecks = Y ] || startupChecks
 procedureSelection
