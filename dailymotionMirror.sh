@@ -2870,7 +2870,7 @@ blankUrlsFile() {
     echo "# You can return to this screen using the command option: $scriptFile --edit-urls"
     echo "# Press Ctrl+X to exit, then type Y then Enter to save your changes"
     echo "# (put each url on it's own line)"
-    echo "#*********************"
+    echo "# ********************"
     echo ""
     echo ""
     
@@ -2917,7 +2917,7 @@ blankPropFile() {
     echo "# Take the time to review these settings and make sure you are satisfied"
     echo "# You can return to this screen using the command option: $scriptFile --edit-prop"
     echo "# Press Ctrl+X to exit, then type Y then Enter to save your changes"
-    echo "#**********************"
+    echo "# ********************"
     echo ""
     echo ""
     echo "# (optional) Processing directory (used to backup program files and process the downloaded files)"
