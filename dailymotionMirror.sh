@@ -1009,7 +1009,7 @@ processNewDownloads() {
         # Skip "0" ids (happens when single video url provided)
         [ $videoId = "0" ] && continue
         
-        echo "DEBUGGING: skipped=$totalVideosSkipped uploaded=$totalVideosUploaded remaining=$((totalVideosRemaining-totalVideosUploaded)) totalVideosRemaining=$totalVideosRemaining"
+        #echo "DEBUGGING: skipped=$totalVideosSkipped uploaded=$totalVideosUploaded remaining=$((totalVideosRemaining-totalVideosUploaded)) totalVideosRemaining=$totalVideosRemaining"
         
         # Quit if spent too much time not uploading anything (only just for video duration that will fit)
         if [ $(date +%s) -gt $stopVideoDurationSearch ]; then
@@ -1221,13 +1221,13 @@ splitVideoRoutine() {
         # Correctly track count as only one video if all splits uploaded
         uploadsAfter=$totalVideosUploaded
         splitUploadsDone=$((uploadsAfter-uploadsBefore))
-        echo "DEBUGGING: uploadsBefore=$uploadsBefore uploadsAfter=$uploadsAfter splitUploadsDone=$splitUploadsDone videoSplits=$videoSplits totalVideosRemaining=$totalVideosRemaining"
+        #echo "DEBUGGING: uploadsBefore=$uploadsBefore uploadsAfter=$uploadsAfter splitUploadsDone=$splitUploadsDone videoSplits=$videoSplits totalVideosRemaining=$totalVideosRemaining"
         if [ $splitUploadsDone -eq $videoSplits ]; then
             ((totalVideosRemaining+=splitUploadsDone-1))
         else
             ((totalVideosRemaining+=splitUploadsDone))
         fi
-        echo "DEBUGGING: totalVideosRemaining=$totalVideosRemaining"
+        #echo "DEBUGGING: totalVideosRemaining=$totalVideosRemaining"
         
         # Restart timeout for duration allowance video search
         stopVideoDurationSearch=$(($(date +%s)+timeoutVideoDurationSearch))
@@ -1352,6 +1352,9 @@ prepareForUpload() {
 }
 
 rebuildAllowanceFile() {
+    
+    # Access token required
+    [ -z "$dmAccessToken" ] && raiseError "rebuildAllowanceFile: dailymotion access token required!"    
     
     # Backup existing file
     [ -f "$allowanceFile" ] && cp "$allowanceFile" "$allowanceFile.bku"
@@ -1605,6 +1608,9 @@ checkOnPublishingVideos() {
     # Variable to hold replacement times
     newFileContent=
     
+    # Marker if file needs resorted
+    resortFile=N    
+    
     # Reset unpublished check
     unpublishedVideosExist=N
     
@@ -1634,6 +1640,9 @@ checkOnPublishingVideos() {
                 uploadLine="$checkTime $uploadDur $uploadId $dmStatus"
                 unpublishedVideosExist=Y
             fi
+            
+            # Mark up that the file will need resorted
+            resortFile=Y
         fi
         
         # Concatenate new line
@@ -1646,7 +1655,11 @@ checkOnPublishingVideos() {
     done
     
     # Write update to tracking file
-    echo "$newFileContent" > "$allowanceFile"
+    if [ $resortFile = Y ]; then
+        sort -n <<< "$newFileContent" > "$allowanceFile"
+    else
+        echo "$newFileContent" > "$allowanceFile"
+    fi
 
 }
 
