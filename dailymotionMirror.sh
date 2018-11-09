@@ -3082,7 +3082,7 @@ updateSourceCode() {
     
     # Success
     echo ""
-    echo "Successfully update code to latest release"
+    echo "Successfully updated code to the latest release"
 
 }
 
