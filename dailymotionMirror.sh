@@ -2974,7 +2974,6 @@ blankPropFile() {
     echo "#   \$youtubeChannel             = URL link to the youtube channel"
     echo "#   \$youtubeVideoTags           = All the tags from the youtube video"
     echo ""
-    echo ""
 
 }
 
