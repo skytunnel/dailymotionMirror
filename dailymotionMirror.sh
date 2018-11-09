@@ -2209,7 +2209,7 @@ getUserInfo() {
         dmMaxDescription=$dmMaxDescriptionForPartners
     else
         # Cannot upload thumbnails unless a partner
-        if [ $mirrorVideoThumbnails = Y ]; then
+        if [ "$mirrorVideoThumbnails" = "Y" ]; then
             mirrorVideoThumbnails=
             printError "Cannot upload thumbnails unless using a Partner account!"
             printError "Please update your .prop file for mirrorVideoThumbnails=N"
