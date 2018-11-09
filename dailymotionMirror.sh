@@ -174,10 +174,10 @@ installDependencies() {
 
 startupChecks() {
 
-    # Check if first time setup required (if no .prop file)
-    if ! [ -f "$propertiesFile" ]; then
+    # Check if first time setup required (if no schedule is setup)
+    if ! [ -f "$cronJobFile" ]; then
+        echo "No cron schedule detected!"
         dailyMotionFirstTimeSetup
-        releaseInstance        
         exit
     fi
     
@@ -393,7 +393,7 @@ helpMenu() {
     echo "$(wrapHelpColumn "      --upload-avatar=IMG " "Set the IMG to a image file location that you wanted uploaded as the accounts Avatar")"
     echo "$(wrapHelpColumn "      --upload-banner=IMG " "Set the IMG to a image file location that you wanted uploaded as the accounts Cover Banner")"
     echo "$(wrapHelpColumn "      --show-dm-uploads   " "Query dailymotion what videos where uploaded in last 24 hours, and compare to local tracking file (for debugging why limits were might have exceeded)")"
-    echo "$(wrapHelpColumn "      --sync-dm-uploads   " "Same as above, but outputs the dailymotion results to the local tracking file for use during uploads.  Use this if you manually uploaded a video and need this script to account for it when uploading more")"  
+    echo "$(wrapHelpColumn "      --sync-dm-uploads   " "Same as above, but outputs the dailymotion results to the local allowance tracking file for use during uploads.  Use this if you manually uploaded a video and need this script to account for it when uploading more.  DO NOT USE if you are maintaining mutliple dailymotion accounts on the same internet connection.")"  
     echo "$(wrapHelpColumn "      --mark-done=ID      " "Mark the given youtube ID as downloaded")"
     echo "$(wrapHelpColumn "                          " "or =ALL to mark all videos in the .urls file as downloaed (e.g. only upload new videos)")"
     echo "$(wrapHelpColumn "                          " "or =SYNC to sync the IDs with the published json file (e.g. to fix problems that might happen)")"
@@ -1664,13 +1664,14 @@ dailyMotionFirstTimeSetup() {
     # Install Dependencies
     installDependencies
     if [ $installRequired = Y ]; then
-        echo "Install was required.  Please rerun command to continue"
+        echo ""
+        echo "Please rerun the command to continue the first-time-setup"
         exit
     fi 
     
     # Check if properties files already exists
     if [ -f "$propertiesFile" ]; then
-        echo "WARNING .prop file has already been setup!"
+        echo "WARNING .prop file already exists!"
         echo ""
         promptYesNo "Are you sure you want to continue? (this will reset everything!)"
         [ $? -eq $ec_Yes ] || exit
@@ -1684,7 +1685,7 @@ dailyMotionFirstTimeSetup() {
             echo ""
             getDailyMotionAccess
             if ! [ -z "$dmAccessToken" ]; then
-                promptYesNo "Are you sure you want to revoke the existing access rights to dailymotion?"
+                promptYesNo "Are you sure you want to revoke the existing access rights to dailymotion and setup again?"
                 [ $? -eq $ec_Yes ] || exit
                 revokeDailyMotionAccess
             fi
@@ -1695,13 +1696,12 @@ dailyMotionFirstTimeSetup() {
     # Get user to author the urls file
     echo ""
     echo "Initializing First Time Setup..."
-    echo "You will be moved to the file editor to provide further information"
+    echo "You will be moved to file editors to provide further information"
     echo ""
     read -p "Press enter to continue..."
     createUrlsFile
     
     # Get user to author the settings in the properties files
-    echo ""
     createPropFile
      
     # Login to daily motion
