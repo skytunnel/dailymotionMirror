@@ -3053,7 +3053,7 @@ updateSourceCode() {
     
     # Download latest source code
     tmpFile=$(mktemp)
-    wget $selfSourceCode --output-document $tmpFile
+    wget --no-cache $selfSourceCode --output-document $tmpFile
     if [ $? -ne $ec_Success ]; then
         raiseError "Failed to download the source code!?"
     fi
