@@ -2929,7 +2929,7 @@ blankPropFile() {
     echo ""
     echo ""
     echo "# (REQUIRED) Time to spend searching for videos to fit the remaining duration allowance before quitting (note checking echo video takes about 30-60 seconds)"
-    echo "durationAllowanceSearchTimeout=$durationAllowanceSearchTimeout"
+    echo "durationAllowanceSearchTimeout=\"$durationAllowanceSearchTimeout\""
     echo ""
     echo ""
     echo "# (REQUIRED) Mirror the video thumbnail images as well (Must be signed as partner)? (Y or N)"
