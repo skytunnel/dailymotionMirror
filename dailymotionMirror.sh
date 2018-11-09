@@ -118,6 +118,7 @@ installDependencies() {
         
         # User Confirm
         installRequired=Y
+        echo ""
         echo "The following packages will be install on your device (if not already there)..."
         echo "    curl          - used for talking with the dailymotion api"
         echo "    cron          - used to schedule this script to run automatically"
@@ -136,6 +137,7 @@ installDependencies() {
         
         # User Confirm
         installRequired=Y
+        echo ""
         echo "Your system requires at least one of the following packages..."
         echo "    ffmpeg        - used for splitting videos to fit max video size"
         echo "    libav-tools   - used for splitting videos to fit max video size"
@@ -159,6 +161,7 @@ installDependencies() {
     
         # User Confirm
         installRequired=Y
+        echo ""
         echo "The following program will be downloaded to your device..."
         echo "    youtube-dl - service for downloading youtube videos"
         echo "    source code: $ytdlSource"
@@ -179,6 +182,7 @@ startupChecks() {
     # Check if first time setup required (if no schedule is setup)
     if ! [ -f "$cronJobFile" ]; then
         echo "No cron schedule detected!"
+        echo ""
         dailyMotionFirstTimeSetup
         exit
     fi
