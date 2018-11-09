@@ -1817,15 +1817,15 @@ setDefaultPropteries() {
     [ -z "$uploadVideoAsPrivate" ]                  && uploadVideoAsPrivate=N
     [ -z "$uploadVideoAsCountryCode" ]              && uploadVideoAsCountryCode=
     [ -z "$uploadVideoInCategory" ]                 && uploadVideoInCategory=
-    [ -z "$uploadVideoDescrTEMPLATE" ]              && uploadVideoDescrTEMPLATE='\$youtubeVideoDescr
+    [ -z "$uploadVideoDescrTEMPLATE" ]              && uploadVideoDescrTEMPLATE='$youtubeVideoDescr
 
-Originally uploaded on \$youtubeVideoUploadDate to:
-\$youtubeVideoLink
+Originally uploaded on $youtubeVideoUploadDate to:
+$youtubeVideoLink
 
 Subscribe on Youtube:
-\$youtubeChannel
+$youtubeChannel
 
-\$youtubeVideoTags'
+$youtubeVideoTags'
 
 }
 
