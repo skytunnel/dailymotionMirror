@@ -267,6 +267,7 @@ inputArguments() {
             ;;
         --revoke-access)
             setRunProcedure $co_dailymotionLoginRevoke
+            optSkipStartupChecks=Y
             ;;
         --change-username)
             setRunProcedure $co_ChangeDailyMotionUsername
