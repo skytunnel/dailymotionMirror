@@ -274,15 +274,19 @@ inputArguments() {
             ;;
         --edit-prop)
             setRunProcedure $co_editPropFile
+            optSkipStartupChecks=Y
             ;;
         --edit-urls)
             setRunProcedure $co_editUrlsFile
+            optSkipStartupChecks=Y
             ;;
         --edit-schedule)
             setRunProcedure $co_editCronFile
+            optSkipStartupChecks=Y
             ;;
         --stop-schedule)
             setRunProcedure $co_stopCronSchedule
+            optSkipStartupChecks=Y
             ;;
         --upload-avatar=*)
             setRunProcedure $co_uploadAvatarImage
