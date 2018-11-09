@@ -3107,7 +3107,7 @@ procedureSelection() {
         # Disable access to this api key
         $co_dailymotionLoginRevoke)  
             rootRequired
-            getDailyMotionAccess
+            initializeDailyMotion
             revokeDailyMotionAccess
             stopCronSchedule
             ;;
