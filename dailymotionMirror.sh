@@ -780,9 +780,10 @@ getVideoDuration() {
         tmpJson=$(mktemp)
         echo "asking youtube-dl for video info..."
         $ytdl --dump-json -- $videoId > $tmpJson
-        if [ $? -ne 0 ]; then
-            printError "Failed to downloaded info for video id "$videoId
+        if [ $? -ne $ec_Success ]; then
             rm $tmpJson
+            printError "Failed to downloaded info for video id "$videoId
+            [ -t 0 ] && read -p "Press enter to continue, or Ctrl+C to quit..."
             recordSkipStats
             return $ec_ContinueNext
         fi
@@ -967,6 +968,7 @@ processExistingJsons() {
 }
 
 getFullListOfVideos() {
+
     # Get list of all video ids from the given urls file
     $ytdl \
         --skip-download \
@@ -977,6 +979,7 @@ getFullListOfVideos() {
         | grep -Po '"id": *"\K[^"]*(?=")' \
         | sed -e 's/^/youtube /'
     # This has been tested that to show that it excludes active live streams
+    
 }
 
 processNewDownloads() {
@@ -984,8 +987,12 @@ processNewDownloads() {
     # Store all video ids from given youtube playlists/channels/videos
     echo "Connecting to youtube-dl server for video list..."
     getFullListOfVideos > "$videoListFile"
+    if [ $? -ne $ec_Success ]; then
+        printError "Failed to get video list"
+        [ -t 0 ] && read -p "Press enter to continue, or Ctrl+C to quit..."
+    fi
     
-    # compare with .done file to see what's new
+    # Compare with .done file to see what's new
     if [ -f "$archiveFile" ]; then
         echo "Checking for new videos..."
         videoListFileTmp=$(mktemp)
@@ -1077,8 +1084,9 @@ downloadVideo() {
         --no-progress \
         --download-archive "$archiveFile" \
         -- $videoId
-    if [ $? -ne 0 ]; then
-        echo "ERROR occurred while downloading the video id "$videoId
+    if [ $? -ne $ec_Success ]; then
+        printError "Failed to download video id" $videoId
+        [ -t 0 ] && read -p "Press enter to continue, or Ctrl+C to quit..."
         recordSkipStats
         return $ec_ContinueNext
     fi
@@ -2818,8 +2826,7 @@ markAsDownloaded() {
                 > "$archiveFile"
             ;;
         *)
-            echo "code not written yet"
-            ###########
+            raiseError "Command not recongised!"
             ;;
     esac
     echo "done"
