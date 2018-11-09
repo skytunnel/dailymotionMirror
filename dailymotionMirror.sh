@@ -1233,13 +1233,14 @@ splitVideoRoutine() {
         
         # Run procedure to process existing jsons
         uploadsBefore=$totalVideosUploaded
+        origVideoSplits=$videoSplits
         processExistingJsons
         
         # Correctly track count as only one video if all splits uploaded
         uploadsAfter=$totalVideosUploaded
         splitUploadsDone=$((uploadsAfter-uploadsBefore))
-        #echo "DEBUGGING: uploadsBefore=$uploadsBefore uploadsAfter=$uploadsAfter splitUploadsDone=$splitUploadsDone videoSplits=$videoSplits totalVideosRemaining=$totalVideosRemaining"
-        if [ $splitUploadsDone -eq $videoSplits ]; then
+        #echo "DEBUGGING: uploadsBefore=$uploadsBefore uploadsAfter=$uploadsAfter splitUploadsDone=$splitUploadsDone origVideoSplits=$origVideoSplits totalVideosRemaining=$totalVideosRemaining"
+        if [ $splitUploadsDone -eq $origVideoSplits ]; then
             ((totalVideosRemaining+=splitUploadsDone-1))
         else
             ((totalVideosRemaining+=splitUploadsDone))
