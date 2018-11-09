@@ -2980,6 +2980,9 @@ blankPropFile() {
 
 stopCronSchedule() {
 
+    # Exit if no schedule exists
+    [ -f "$cronJobFile" ] || raiseError "No cron schedule to stop"
+    
     # Sudo Access required    
     rootRequired
 
