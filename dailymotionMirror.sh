@@ -68,12 +68,13 @@ setConstants() {
     dmDurationAllowanceExpirySTR="24 hours"     # How long before duration expires and can be used again
     dmVideosPerDay=10                           # Max number of videos per day
     dmVideosPerDayForVerifiedPartners=96        # Max number of videos per day on Verified Partner Accounts
-    dmVideoAllowance=4                          # Dailymotion.com video count allowance
+    dmVideoAllowance=4                          # Dailymotion.com video count allowance per hour
     dmVideoAllowanceExpirySTR="60 minutes"      # How long before video count expires and can be used again
     dmExpiryToleranceTimeSTR="30 seconds"       # Additional amount of seconds to wait on top of the dailymotion allowance expiry (in order to avoid exceeding limits) 
     dmWaitTimeBetweenUploadsSTR="30 seconds"    # The minimum seconds between one upload ending and another beginning
     waitTimeBeforeDownloadingSTR="2 hours"      # How much time to allow the download before the allowance is available
     waitTimeBeforeUploadingSTR="30 minutes"     # How much time to allow the upload before the allowance is available
+    quitWhenUploadWindowIsWithinSTR="3 hours"   # If the upload window doesn't start till within this time before the next scheduled run, then just quit and let the next scheduled run process it (avoids it starting a new window without using up the allowance of the previous window)
     dmMaxTitleLength=255                        # Max characters for video title
     dmMaxDescription=3000                       # Max characters for video description
     dmMaxDescriptionForPartners=5000            # Max characters for video description on Partner Accounts
@@ -98,6 +99,7 @@ setConstants() {
     dmWaitTimeBetweenUploads=$(timeInSeconds "$dmWaitTimeBetweenUploadsSTR")
     waitTimeBeforeDownloading=$(timeInSeconds "$waitTimeBeforeDownloadingSTR")
     waitTimeBeforeUploading=$(timeInSeconds "$waitTimeBeforeUploadingSTR")
+    quitWhenUploadWindowIsWithin=$(timeInSeconds "$quitWhenUploadWindowIsWithinSTR")
     
 }
 
@@ -610,12 +612,7 @@ main() {
     
     # Check required files exist
     [ -f "$urlsFile" ] || raiseError "urls file not found! $urlsFile"
-     
-    # Initial Variables
-    mainProcedureActivated=Y
-    minSkippedDuration=0
-    startStatistics
-    
+
     # Determine when the next 24 hour upload period begins
     videoDuration=0
     oldestVideoThisHour=0
@@ -630,12 +627,25 @@ main() {
         fi
     fi
     uploadWindowEnd=$((uploadWindowStart+dmDurationAllowanceExpiry))
-    echo "Upload window ends at:                " $(date -d @$uploadWindowEnd)
-    
+    echo "Upload window opens at:               " $(date -d @$uploadWindowStart)
+    echo "Upload window closes at:              " $(date -d @$uploadWindowEnd)
+
     # Determine time to quit (before next schedule starts)
     dmUploadQuitingTime=$((mainStartTime+dmDurationAllowanceExpiry-300)) # 5 minute tolerance for startup time
     echo "Quit time before next schedule:       " $(date -d @$dmUploadQuitingTime)
     echo ""
+    
+    # Quit when upload window doesn't open till within the set time of the next schedule
+    if [ $uploadWindowStart -gt $((dmUploadQuitingTime-quitWhenUploadWindowIsWithin)) ]; then
+        echo "Upload window does not start till close to the next scheduled run"
+        echo "Quitting this run, and let the next schedule pick up the videos for processing"
+        exitRoutine
+    fi
+    
+    # Initial Variables
+    mainProcedureActivated=Y
+    minSkippedDuration=0
+    startStatistics
 
     # Get connected to dailymotion
     initializeDailyMotion
