@@ -232,8 +232,9 @@ inputArguments() {
     co_syncVideoDetails=14
     co_checkServerTimeOffset=15
     co_killExistingInstance=16
-    co_updateSourceCode=17
-    co_devTestCode=18
+    co_watchExistingInstance=17
+    co_updateSourceCode=18
+    co_devTestCode=19
     
     # Set Default Argument Options
     optRunProcedure=$co_mainProcedure
@@ -319,6 +320,9 @@ inputArguments() {
             ;;
         --kill-existing)
             setRunProcedure $co_killExistingInstance
+            ;;
+        --watch-log-file)
+            setRunProcedure $co_watchExistingInstance
             ;;
         --ignore-allowance)
             optIgnoreAllowance=Y
@@ -410,6 +414,7 @@ helpMenu() {
     echo "$(wrapHelpColumn "                          " "or =SYNC to sync the IDs with the published json file (e.g. to fix problems that might happen)")"
     echo "$(wrapHelpColumn "      --sync-dm-id=ID     " "Sync the current details of the given dailymotion video ID with the original youtube video")"
     #echo "$(wrapHelpColumn "      --check-time-offset " "(debugging purposes). Compare the local time to the time on dailymotion servers.  Useful you are exceeding allowances and might be due to clock setting differences")"
+    echo "$(wrapHelpColumn "      --watch-log-file    " "Real time view of an existing running instance's log file.  Press Ctrl+C to escape")"
     echo "$(wrapHelpColumn "      --kill-existing     " "DEV ONLY.  Used to kill an existing running instance of this script")"
     #echo "$(wrapHelpColumn "      --dev-test-code     " "DEV ONLY. Run whatever code is in the test procedure")"  
     echo ""
@@ -457,7 +462,14 @@ exitOnExistingInstance() {
     # If it's the same as the locked instance, then exit
     if [ $lockedProccessId -gt 0 ] && [ $lockedProccessId -eq $existingProcessId ]; then
         echo "$scriptFile has already been running since $existingProcessStart (pid: $existingProcessId )"
-        exit 0
+        
+        # Watch the log instead?
+        echo ""
+        promptYesNo "Would you like to watch the log of this running instance?)"
+        [ $? -eq $ec_Yes ] || exit
+        watchExistingInstance
+        
+        exit
     fi
 
     # Record this process id on the lock file
@@ -487,6 +499,26 @@ killExistingInstance() {
     # Kill the existing instance
     kill $existingProcessId
     
+}
+
+watchExistingInstance() {
+
+    # Error if no log file found
+    [ -f "$logFile" ] || raiseError "Log file does not exist!"
+
+    # Info on existing instance
+    getExistingInstance
+    
+    # Exit if no instance
+    if [ $existingProcessId -eq 0 ]; then
+        echo "No running instance found!"
+        promptYesNo "Would you like to display the log from the last run instance?"
+        [ $? -eq $ec_Yes ] || exit
+    fi
+
+    # Real time view of the log
+    tail -f -n +1 "$logFile"
+
 }
 
 rootRequired() {
@@ -3197,6 +3229,11 @@ procedureSelection() {
             killExistingInstance
             ;;
         
+        # Watch the log file of an existing instance
+        $co_watchExistingInstance)
+            watchExistingInstance
+            ;;
+            
         # Self updating code
         $co_updateSourceCode)
             updateSourceCode    
