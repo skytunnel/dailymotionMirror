@@ -816,21 +816,22 @@ clearVideoCacheFile() {
     
     # Get a list of uploaded ids
     tmpUploadedIDsFile=$(mktemp)
-    grep --perl-regexp \
-        --only-matching \
-        '"youtubeId": *"\K[^"]*(?=")' \
+    jq --raw-output \
+        '.youtubeId' \
         "$uploadTrackingFile" \
         > $tmpUploadedIDsFile
         
     # Compare to ids from cache file
+    tmpNewCacheFile=$(mktemp)
     grep --fixed-strings \
         --invert-match \
         --file $tmpUploadedIDsFile \
-        "$videoCacheFile" > "$videoCacheFile.tmp"
+        "$videoCacheFile" \
+        > $tmpNewCacheFile
     
     # Only keep what hasn't been uploaded
-    cp "$videoCacheFile.tmp" "$videoCacheFile"
-    rm --force "$videoCacheFile.tmp"
+    cp $tmpNewCacheFile "$videoCacheFile"
+    rm --force $tmpNewCacheFile
     rm --force $tmpUploadedIDsFile
 
 }
@@ -980,9 +981,8 @@ getFullListOfVideos() {
         --flat-playlist \
         ${youtubePlaylistReverse:+ --playlist-reverse} \
         --batch-file "$urlsFile" \
-        | grep -Po '"id": *"\K[^"]*(?=")' \
-        | sed -e 's/^/youtube /'
-    # This has been tested that to show that it excludes active live streams
+        | jq --raw-output '"youtube " + .id' 
+    # (This has been tested that to show that it excludes active live streams)
     
 }
 
@@ -2661,7 +2661,11 @@ addLinkToPrevVideoPart() {
 syncVideoDetails() {
     
     # Ensure video ID has been uploaded previously
-    uploadInfoJson=$(grep "$optSyncDailyMotionID" "$uploadTrackingFile")
+    uploadInfoJson=$(jq \
+        --compact-output \
+        ". | select(.dailyMotionId == \"$optSyncDailyMotionID\")" \
+        "$uploadTrackingFile"
+    )
     [ -z "$uploadInfoJson" ] \
         && raiseError "Could not find dailymotion Video ID in uploaded list: $optSyncDailyMotionID"
     echo "Syncing dailymotion Video ID " $optSyncDailyMotionID
@@ -2753,7 +2757,7 @@ dmQueryUploadInAllowancePeriod() {
         fi
         
         # Loop through list
-        for dmVideoId in $(jq -r ".list[] | .id" <<< "$dmServerResponse"); do
+        for dmVideoId in $(jq --raw-output ".list[] | .id" <<< "$dmServerResponse"); do
             dmServerResponse=$(curl --silent \
                 --header "Authorization: Bearer ${dmAccessToken}" \
                --data "fields=created_time,duration,status" \
@@ -2823,15 +2827,13 @@ markAsDownloaded() {
             ;;
         "SYNC")
             echo "Syncing with uploads .json file"
-            grep --perl-regexp \
-                --only-matching \
-                '"youtubeId": *"\K[^"]*(?=")' \
+            jq --raw-output \
+                '"youtube " + .youtubeId' \
                 "$uploadTrackingFile" \
-                | sed -e 's/^/youtube /' \
                 > "$archiveFile"
             ;;
         *)
-            raiseError "Command not recongised!"
+            raiseError "Command not recognized !"
             ;;
     esac
     echo "done"
@@ -3092,7 +3094,8 @@ updateSourceCode() {
 }
 
 testCodeDevONLY() {
-    echo "nothing to test here :)"
+    #echo "nothing to test here :)"
+    getFullListOfVideos
 }
 
 procedureSelection() {
