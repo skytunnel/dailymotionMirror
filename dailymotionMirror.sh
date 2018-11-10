@@ -645,6 +645,7 @@ main() {
     
     # Check if existing process running this script
     [ $optAllowMultiInstances = Y ] || exitOnExistingInstance
+    mainProcedureActivated=Y
     
     # Warning if run from terminal when schedule is setup
     if [ -t 0 ] && [ -f "$cronJobFile" ]; then
@@ -661,11 +662,6 @@ main() {
     # Record start time
     mainStartTime=$(date +%s)
     echo "Start date time:                      " $(date +"%F %T")
-    
-    # Initial Variables
-    mainProcedureActivated=Y
-    minSkippedDuration=0
-    startStatistics
     
     # Check required files exist
     [ -f "$urlsFile" ] || raiseError "urls file not found! $urlsFile"
@@ -698,7 +694,11 @@ main() {
         echo "Quitting this run, and let the next schedule pick up the videos for processing"
         exitRoutine
     fi
-
+    
+    # Initial Variables
+    minSkippedDuration=0
+    startStatistics
+    
     # Get connected to dailymotion
     initializeDailyMotion
     
