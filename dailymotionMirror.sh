@@ -414,7 +414,7 @@ helpMenu() {
     echo "$(wrapHelpColumn "                          " "or =SYNC to sync the IDs with the published json file (e.g. to fix problems that might happen)")"
     echo "$(wrapHelpColumn "      --sync-dm-id=ID     " "Sync the current details of the given dailymotion video ID with the original youtube video")"
     #echo "$(wrapHelpColumn "      --check-time-offset " "(debugging purposes). Compare the local time to the time on dailymotion servers.  Useful you are exceeding allowances and might be due to clock setting differences")"
-    echo "$(wrapHelpColumn "      --watch-log-file    " "Real time view of an existing running instance's log file.  Press Ctrl+C to escape")"
+    echo "$(wrapHelpColumn "      --watch-log-file    " "Real time log view of an existing (or previously) run instance.  Press Ctrl+C to escape")"
     echo "$(wrapHelpColumn "      --kill-existing     " "DEV ONLY.  Used to kill an existing running instance of this script")"
     #echo "$(wrapHelpColumn "      --dev-test-code     " "DEV ONLY. Run whatever code is in the test procedure")"  
     echo ""
@@ -573,8 +573,7 @@ function isDate() {
 
 # Function convert a time string to number of seconds
 function timeInSeconds() {
-    #echo $(($(date +%s -d "+$@")-$(date +%s)))
-    echo $(date +%s -d "$(date +'%F %T %Z' -d "@0") +$@")
+    echo $(date +%s -u -d "$(date +%F -d @0) +$@")
 }
 
 # function to prompt user for yes/no response
@@ -646,6 +645,18 @@ main() {
     
     # Check if existing process running this script
     [ $optAllowMultiInstances = Y ] || exitOnExistingInstance
+    
+    # Warning if run from terminal when schedule is setup
+    if [ -t 0 ] && [ -f "$cronJobFile" ]; then
+        echo "Everything is already setup!"
+        echo "Try the --help command to see other available options"
+        echo ""
+        echo "Running this command here will start an upload outside of your set schedule"
+        echo "Try using --edit-schedule command if you want to change when this code runs"
+        echo ""
+        promptYesNo "Are you sure you want to start uploading outside of your set schedule?"
+        [ $? -eq $ec_Yes ] || exitRoutine
+    fi
     
     # Record start time
     mainStartTime=$(date +%s)
@@ -789,9 +800,9 @@ printStatistics() {
     echo "***********************************************************"
     echo "**** Remaining Videos to be uploaded:  " $((totalVideosRemaining-totalVideosUploaded))
     echo "**** Videos Uploaded this sessions:    " $totalVideosUploaded
-    echo "**** Total Duration Uploaded:          " $(date +%T -d @$totalDurationUploaded) "("$totalDurationUploaded" seconds)"
+    echo "**** Total Duration Uploaded:          " $(date +%T -u -d @$totalDurationUploaded) "("$totalDurationUploaded" seconds)"
     echo "**** Videos Skipped:                   " $totalVideosSkipped
-    echo "**** Total Duration of Skipped Videos: " $((totalDurationSkipped/60/60))"h "$(date +"%Mm %Ss" -d @$totalDurationSkipped) "("$totalDurationSkipped" seconds)"
+    echo "**** Total Duration of Skipped Videos: " $((totalDurationSkipped/60/60))"h "$(date +"%Mm %Ss" -u -d @$totalDurationSkipped) "("$totalDurationSkipped" seconds)"
     echo "**** Total Time Taken:                 " $(date +"%Hh %Mm %Ss" -d "-$mainStartTime seconds")
     echo "***********************************************************"
 }
@@ -831,7 +842,7 @@ getVideoDuration() {
         # Apply Live Stream Check Delay Rules (as per properties file)
         if [ $videoDate -gt $delayDownloadsAfter ] && [ $videoDuration -gt $delayDownloadDuration ]; then
             echo "Skipping video id "$videoId" to allow time for trimming (uploaded on $videoDateStr )"
-            echo "Video Duration:    " $(date +%T -d @$videoDuration) "("$videoDuration" seconds)"
+            echo "Video Duration:    " $(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
             recordSkipStats
             return $ec_ContinueNext
         fi
@@ -1184,7 +1195,7 @@ splitVideoRoutine() {
         
         # Work out Split Size
         minSplitDuration=$((videoDuration/videoSplits+1))
-        echo "Video Split Duration:      " $(date +%T -d @$minSplitDuration) "("$minSplitDuration" seconds)"
+        echo "Video Split Duration:      " $(date +%T -u -d @$minSplitDuration) "("$minSplitDuration" seconds)"
         
         # Split video and create new jsons
         previousSplit=0
@@ -1316,7 +1327,7 @@ prepareForUpload() {
     
     # Skip right away if greater than last skipped duration
     if [ $minSkippedDuration -gt 0 ] && [ $videoDuration -gt $minSkippedDuration ]; then
-        echo "Skipping video ID $videoId, duration is "$(date +%T -d @$videoDuration) "("$videoDuration" seconds)"
+        echo "Skipping video ID $videoId, duration is "$(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
         recordSkipStats
         return $ec_ContinueNext
     fi
@@ -1336,7 +1347,7 @@ prepareForUpload() {
         videoSplits=$((videoDuration/dmMaxVideoDuration+1))
         
         # Print Full Duration Info
-        echo "Current Video Duration:               " $(date +%T -d @$videoDuration) "("$videoDuration" seconds)"
+        echo "Current Video Duration:               " $(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
         
         # Query the limits based on max upload size (don't use min size to avoid it priortising split videos over smaller ones)
         echo "Query upload limits based on max video duration size..."
@@ -1345,7 +1356,7 @@ prepareForUpload() {
     
     # Skip if greater than max duration by window end
     if [ $videoDuration -gt $remainingDurationMAX ]; then
-        echo "Skipping video ID $videoId, duration is "$(date +%T -d @$videoDuration) "("$videoDuration" seconds)"
+        echo "Skipping video ID $videoId, duration is "$(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
         if [ $videoDuration -lt $minSkippedDuration ] || [ $minSkippedDuration -eq 0 ]; then
             minSkippedDuration=$videoDuration
         fi
@@ -1486,7 +1497,7 @@ dmGetAllowance() {
         
         # Print full times for debugging
         if [ $optDebug = Y ]; then
-            echo $(date -d @$uploadTime) $(date +%T -d @$uploadDur) "("$uploadDur")"
+            echo $(date -d @$uploadTime) $(date +%T -u -d @$uploadDur) "("$uploadDur")"
         fi
         
         # Convert server time to local time
@@ -1566,11 +1577,11 @@ dmGetAllowance() {
     [ $remainingDuration -lt 0 ] && remainingDuration=0
     if [ $printAllowances = Y ]; then
         echo "Checking upload allowance as of       " $(date)" ..."
-        echo "Current video duration:               " $(date +%T -d @$videoDuration) "("$videoDuration" seconds)"
-        echo "Remaining upload duration:            " $(date +%T -d @$remainingDuration) "("$remainingDuration" seconds)"
+        echo "Current video duration:               " $(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
+        echo "Remaining upload duration:            " $(date +%T -u -d @$remainingDuration) "("$remainingDuration" seconds)"
         echo "Remaining upload videos:              " $remainingVideos
         echo "Remaining daily uploads:              " $remainingDailyVideos
-        echo "Remaining duration (current window):  " $(date +%T -d @$remainingDurationMAX) "("$remainingDurationMAX" seconds)"
+        echo "Remaining duration (current window):  " $(date +%T -u -d @$remainingDurationMAX) "("$remainingDurationMAX" seconds)"
     fi
     
     # Default minimum wait time between uploads
@@ -2802,7 +2813,7 @@ dmQueryUploadInAllowancePeriod() {
             
             # echo results
             if [ $formatReadable = Y ]; then
-                echo $dmVideoId $(date -d @$dmCreatedTime) $(date +%T -d @$dmDuration) "("$dmDuration")" $dmStatus
+                echo $dmVideoId $(date -d @$dmCreatedTime) $(date +%T -u -d @$dmDuration) "("$dmDuration")" $dmStatus
             else
                 echo $dmCreatedTime $dmDuration $dmVideoId $dmStatus
             fi      
@@ -2817,7 +2828,7 @@ showUploadsDoneToday() {
     echo ""
     echo "Uploads to dailymotion.com in last 24 hours..."
     dmQueryUploadInAllowancePeriod --readable
-    echo "Total Upload Duration: " $((dmTotalDuration/60/60))"h "$(date +"%Mm %Ss" -d @$dmTotalDuration) "("$dmTotalDuration")"
+    echo "Total Upload Duration: " $((dmTotalDuration/60/60))"h "$(date +"%Mm %Ss" -u -d @$dmTotalDuration) "("$dmTotalDuration")"
     
     # Print info on when next upload can be done
     waitingTime=$((maxWaitTill+dmExpiryToleranceTime-$(date +%s)))
