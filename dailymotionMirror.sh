@@ -619,6 +619,11 @@ main() {
     mainStartTime=$(date +%s)
     echo "Start date time:                      " $(date +"%F %T")
     
+    # Initial Variables
+    mainProcedureActivated=Y
+    minSkippedDuration=0
+    startStatistics
+    
     # Check required files exist
     [ -f "$urlsFile" ] || raiseError "urls file not found! $urlsFile"
 
@@ -650,11 +655,6 @@ main() {
         echo "Quitting this run, and let the next schedule pick up the videos for processing"
         exitRoutine
     fi
-    
-    # Initial Variables
-    mainProcedureActivated=Y
-    minSkippedDuration=0
-    startStatistics
 
     # Get connected to dailymotion
     initializeDailyMotion
