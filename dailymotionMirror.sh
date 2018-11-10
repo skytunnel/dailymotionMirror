@@ -3094,8 +3094,7 @@ updateSourceCode() {
 }
 
 testCodeDevONLY() {
-    #echo "nothing to test here :)"
-    getFullListOfVideos
+    echo "nothing to test here :)"
 }
 
 procedureSelection() {
