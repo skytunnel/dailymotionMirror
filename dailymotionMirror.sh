@@ -656,7 +656,10 @@ main() {
         echo "Try using --edit-schedule command if you want to change when this code runs"
         echo ""
         promptYesNo "Are you sure you want to start uploading outside of your set schedule?"
-        [ $? -eq $ec_Yes ] || exitRoutine
+        if ! [ $? -eq $ec_Yes ]; then
+            releaseInstance
+            exit
+        fi
     fi
     
     # Record start time
