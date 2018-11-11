@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.1.2
+scriptVersionNo=0.1.3
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1787,16 +1787,21 @@ dailyMotionFirstTimeSetup() {
     # Get user to author the urls file
     echo ""
     echo "Initializing First Time Setup..."
-    echo "You will be moved to file editors to provide further information"
+    echo "You will be moved to a file editor to provide further information"
     echo ""
     read -p "Press enter to continue..."
     createUrlsFile
     
     # Get user to author the settings in the properties files
+    echo ".urls file successfully created.  Moving on to create properties file..."
+    echo ""
+    read -p "Press enter to continue..."
     createPropFile
+    echo ".prop file successfully created"
      
     # Login to daily motion
     echo ""
+    echo "Preparing next stage..."
     initializeDailyMotion
             
     # Create usage file from uploads to account info
@@ -1804,11 +1809,16 @@ dailyMotionFirstTimeSetup() {
     
     # Create Cron Job Schedule
     echo ""
-    echo "Creating cron job schedule to run automatically..."
-    echo "You will be moved to the file editor where you can override the randomly assigned minute/hour schedule"
+    echo ""
+    echo ""
+    echo "Last step is to setup this script to run automatically on schedule."
+    echo "You will be moved to another file editor where you can override the randomly assigned minute/hour schedule"
     echo ""
     read -p "Press enter to continue..."
     editCronFile
+    
+    # Confirm
+    echo "First-time setup complete!"
 
 }
 
@@ -2966,49 +2976,60 @@ blankPropFile() {
     echo "# Below is your properties file (.prop) to hold all your download/upload preferences"
     echo "# Each setting has a label followed by an equals sign (=) followed by your entry"
     echo "# There is a description above each setting's label"
-    echo "# Note, some settings are marked as required, for which you MUST supply a value"
+    echo "# Note that some settings are marked as required, for which you MUST supply a value"
     echo "# Take the time to review these settings and make sure you are satisfied"
-    echo "# You can return to this screen using the command option: $scriptFile --edit-prop"
-    echo "# Press Ctrl+X to exit, then type Y then Enter to save your changes"
+    echo "# Once done, press Ctrl+X to exit, then type Y and hit Enter to save your changes"
+    echo "# You can return to this screen at anytime using the command option:"
+    echo "#     $scriptFile --edit-prop"
     echo "# ********************"
     echo ""
     echo ""
-    echo "# (optional) Processing directory (used to backup program files and process the downloaded files)"
+    echo "# (optional) Processing directory (used to backup program files and process the "
+    echo "#    downloaded files)"
     echo "processingDirectory=\"$processingDirectory\""
     echo ""
     echo ""
-    echo "# (REQUIRED) Download videos in reverse order of each given playlist/channel? (Y or N)"
+    echo "# (REQUIRED) Reverse the Playlist's order when downloading (Y or N)"
+    echo "     (Change to 'Y' if you wand to mirror channel from the oldest video forward)"
     echo "youtubePlaylistReverse=$youtubePlaylistReverse"
     echo ""
     echo ""
-    echo "# (REQUIRED) Rules for delaying downloads of possible live-streams that need trimmed on youtube first (because youtube-dl does not provide any live stream identification)"
-    echo "# 1) Enter a time value of how long a video must be to count as a possible live-stream"
-    echo "# 2) Enter a time value of how long to delay the upload of any video that is longer than the defined duration"
+    echo "# (REQUIRED) Live-stream identification and time to wait for video to be trimmed"
+    echo "#    (the youtube-dl service does not provide identification of live streamed videos,"
+    echo "#    so below settings are used to define which videos are considered live streams)"
+    echo "#    1) Enter the minimum duration a video must be to considered a live-stream"
+    echo "#    2) Enter how long to delay this videos' upload to wait for trimming"
     echo "delayDownloadIfVideoIsLongerThan=\"$delayDownloadIfVideoIsLongerThan\""
     echo "delayedVideosWillBeUploadedAfter=\"$delayedVideosWillBeUploadedAfter\""
     echo ""
     echo ""
-    echo "# (REQUIRED) The targetted upload duration allowance to have remaining before the script quits and waits for next scheduled run"
+    echo "# (REQUIRED) Upload Duration Allowance Target"
+    echo "#    (The daily duration allowance to have remaining before the script quits)"
     echo "targetRemainingAllowance=\"$targetRemainingAllowance\""
     echo ""
     echo ""
-    echo "# (REQUIRED) Time to spend searching for videos to fit the remaining duration allowance before quitting (note checking echo video takes about 30-60 seconds)"
+    echo "# (REQUIRED) Timeout for the video duration search"
+    echo "#   (Time to spend scanning for videos in your playlists' that can fit the remaining"
+    echo "#   duration allowance before the script quits)"
     echo "durationAllowanceSearchTimeout=\"$durationAllowanceSearchTimeout\""
     echo ""
     echo ""
-    echo "# (REQUIRED) Mirror the video thumbnail images as well (Must be signed as partner)? (Y or N)"
+    echo "# (REQUIRED) Video Thumbnail Mirror (Y or N)"
+    echo "#    (Note: requires a dailymotion partner account)"
     echo "mirrorVideoThumbnails=$mirrorVideoThumbnails"
     echo ""
     echo ""
-    echo "# (REQUIRED) Set videos to private (true or false)"
+    echo "# (REQUIRED) Set uploaded videos to private (true or false)"
     echo "uploadVideoAsPrivate=$uploadVideoAsPrivate"
     echo ""
     echo ""
-    echo "# (optional) Comma separated list of tags to append to all videos (existing youtube tags and hash tags will be mirrored also)"
+    echo "# (optional) Append Tags to all uploaded videos (comma separated)"
+    echo "#    (Note: existing youtube tags and hash tags will be also mirrored"
     echo "uploadVideoAppendedTags=\"$uploadVideoAppendedTags\""
     echo ""
     echo ""
-    echo "# (optional) Suggested dailymotion video id after playback ends (only works for partner accounts)"
+    echo "# (optional) Suggested dailymotion video id after playback ends"
+    echo "#    (Note: requires a dailymotion partner account before it actually works)"
     echo "uploadVideoWithNextVideoIdPlayback=\"$uploadVideoWithNextVideoIdPlayback\""
     echo ""
     echo ""
@@ -3016,15 +3037,18 @@ blankPropFile() {
     echo "uploadVideoWithPassword='$uploadVideoWithPassword'"
     echo ""
     echo ""
-    echo "# (optional) Video Country Origin (codes: https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)"
+    echo "# (optional) Video Country Origin"
+    echo "#    (Country Codes: https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)"
     echo "uploadVideoAsCountryCode=\"$uploadVideoAsCountryCode\""
     echo ""
     echo ""
-    echo "# (REQUIRED) Category to post all videos under (aka Channel on dailymotion.com) pick from the valid codes below"
+    echo "# (REQUIRED) Category to post all videos under"
+    echo "#    (Also known as a 'Channel' on dailymotion.com) pick from the valid codes below"
     echo "uploadVideoInCategory=\"$uploadVideoInCategory\""
-    echo "#  valid codes: 'animals', 'kids', 'music', 'news', 'sport', 'tech', 'travel', 'tv', 'webcam',"
-    echo "#               'auto' (aka Cars), 'people' (aka Celeb), 'fun' (aka Comedy & Entertainment),"
-    echo "#               'creation' (aka Creative), 'school' (aka Education), 'videogames' (aka Gaming)"
+    echo "#  Valid codes: 'animals', 'kids', 'music', 'news', 'sport', 'tech', 'travel', 'tv',"
+    echo "#               'webcam', 'auto' (aka Cars), 'people' (aka Celeb), "
+    echo "#               'fun' (aka Comedy & Entertainment), 'creation' (aka Creative), "
+    echo "#               'school' (aka Education), 'videogames' (aka Gaming)"
     echo "#               'lifestyle' (aka Lifestyle & How-to), 'shortfilms' (aka movies)"
     echo ""
     echo ""
@@ -3091,7 +3115,7 @@ blankCronFile() {
     echo "$scheduleMinute $scheduleHour * * * $(whoami) \"$scriptDir/$scriptFile\" #--keep-log-file"
     echo ""
     echo "# Schedule format instructions..."
-    echo "# [minute] [hour] [day-of-month] [month] [day-of-week] [run-as-user] [command-to-execute]"
+    echo "# [minute] [hour] [day-of-month] [month] [day-of-week] [user] [command-to-execute]"
     echo "# * * * * * user command"
     echo "# ┬ ┬ ┬ ┬ ┬"
     echo "# │ │ │ │ │"
