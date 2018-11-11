@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.1
+scriptVersionNo=0.1.1
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
