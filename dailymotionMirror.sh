@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.1.1
+scriptVersionNo=0.1
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -3127,12 +3127,12 @@ updateSourceCode() {
         --perl-regexp \
         --only-matching \
         '^scriptVersionNo=\K.*' \
-        "$scriptDir/$scriptFile" \
+        "$tmpFile" \
     )
     
     # Cancel if already on newest version
     if [ "$scriptVersionNo" = "$newVersionNumber" ]; then
-        raiseError "Nothing to update!  You are on the latest version"
+        raiseError "Nothing to update!  You are on the latest version $newVersionNumber"
     fi
     
     # Backup copy
