@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Version Tracking
+scriptVersionNo=0.1.1
+
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
     errInfo="Error on line $1"
@@ -664,6 +667,7 @@ main() {
     
     # Record start time
     mainStartTime=$(date +%s)
+    echo "$scriptDir/$scriptFile - version: $scriptVersionNo"
     echo "Start date time:                      " $(date +"%F %T")
     
     # Check required files exist
@@ -3107,11 +3111,9 @@ updateSourceCode() {
     rootRequired
     
     # Are you sure? 
+    echo "Current version is $scriptVersionNo"
     promptYesNo "Are you sure you want update this script?"
     [ $? -eq $ec_Yes ] || exit
-    
-    # Backup copy
-    cp "$scriptDir/$scriptFile" "$scriptDir/$scriptFile.bku"
     
     # Download latest source code
     tmpFile=$(mktemp)
@@ -3119,6 +3121,22 @@ updateSourceCode() {
     if [ $? -ne $ec_Success ]; then
         raiseError "Failed to download the source code!?"
     fi
+    
+    # Get new version number
+    newVersionNumber=$(grep \
+        --perl-regexp \
+        --only-matching \
+        '^scriptVersionNo=\K.*' \
+        "$scriptDir/$scriptFile" \
+    )
+    
+    # Cancel if already on newest version
+    if [ "$scriptVersionNo" = "$newVersionNumber" ]; then
+        raiseError "Nothing to update!  You are on the latest version"
+    fi
+    
+    # Backup copy
+    cp "$scriptDir/$scriptFile" "$scriptDir/$scriptFile.bku"
     
     # Copy to self
     mv $tmpFile "$scriptDir/$scriptFile"
@@ -3135,7 +3153,7 @@ updateSourceCode() {
     
     # Success
     echo ""
-    echo "Successfully updated code to the latest release"
+    echo "Successfully updated code to the latest version number $newVersionNumber"
 
 }
 
