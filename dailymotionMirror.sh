@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.1.4
+scriptVersionNo=0.1.5
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -2995,8 +2995,8 @@ blankPropFile() {
     echo ""
     echo ""
     echo "# (REQUIRED) Live-stream identification and time to wait for video to be trimmed"
-    echo "#    (the youtube-dl service does not provide identification of live streamed videos,"
-    echo "#    so below settings are used to define which videos are considered live streams)"
+    echo "#    (the youtube-dl service does not provide identification of live streamed videos"
+    echo "#    , so these settings are used to define which videos to considered live streams)"
     echo "#    1) Enter the minimum duration a video must be to considered a live-stream"
     echo "#    2) Enter how long to delay this videos' upload to wait for trimming"
     echo "delayDownloadIfVideoIsLongerThan=\"$delayDownloadIfVideoIsLongerThan\""
