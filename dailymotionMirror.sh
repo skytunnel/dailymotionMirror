@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.1.3
+scriptVersionNo=0.1.4
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -2984,13 +2984,13 @@ blankPropFile() {
     echo "# ********************"
     echo ""
     echo ""
-    echo "# (optional) Processing directory (used to backup program files and process the "
+    echo "# (optional) Processing directory (used to backup program files and process the"
     echo "#    downloaded files)"
     echo "processingDirectory=\"$processingDirectory\""
     echo ""
     echo ""
     echo "# (REQUIRED) Reverse the Playlist's order when downloading (Y or N)"
-    echo "     (Change to 'Y' if you wand to mirror channel from the oldest video forward)"
+    echo "#    (Change to 'Y' if you wand to mirror channel from the oldest video forward)"
     echo "youtubePlaylistReverse=$youtubePlaylistReverse"
     echo ""
     echo ""
