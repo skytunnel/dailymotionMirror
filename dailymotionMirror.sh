@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.1.6
+scriptVersionNo=0.2.0
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -710,10 +710,10 @@ main() {
     initializeDailyMotion
     
     # Move to output directory
-    if [ -z "$processingDirectory" ]; then
+    if [ -z "$processingDirectoryFull" ]; then
         [ -d "$outputDir" ] || mkdir "$outputDir"
     else
-        outputDir=$processingDirectory
+        outputDir=$processingDirectoryFull
     fi
     cd "$outputDir"
     
@@ -759,8 +759,8 @@ exitRoutine() {
     releaseInstance
     
     # Backup important files
-    if [ -d "$processingDirectory" ]; then
-        bkuDir="$processingDirectory"/backup/
+    if [ -d "$processingDirectoryFull" ]; then
+        bkuDir="$processingDirectoryFull"/backup/
         [ -d "$bkuDir" ] || mkdir "$bkuDir"
         cp --force "$uploadTrackingFile" "$bkuDir"
         cp --force "$uploadTrackingFileCSV" "$bkuDir"
@@ -1029,7 +1029,7 @@ getFullListOfVideos() {
         --skip-download \
         --dump-json \
         --flat-playlist \
-        ${youtubePlaylistReverse:+ --playlist-reverse} \
+        ${youtubePlaylistReverseOpt:+ --playlist-reverse} \
         --batch-file "$urlsFile" \
         | jq --raw-output '"youtube " + .id' 
     # (This has been tested that to show that it excludes active live streams)
@@ -1943,7 +1943,7 @@ validateProperties() {
             printError "The processingDirectory \"$processingDirectory\" does not exist!"
             propFailedValidation=Y
         else
-            processingDirectory+="/"
+            processingDirectoryFull+="/"
         fi
     fi
     
@@ -1952,7 +1952,8 @@ validateProperties() {
         printError "\"$youtubePlaylistReverse\" is an invalid boolean.  Expected Y or N on youtubePlaylistReverse"
         propFailedValidation=Y
     else
-        [ "$youtubePlaylistReverse" = "Y" ] || youtubePlaylistReverse=
+        youtubePlaylistReverseOpt=
+        [ "$youtubePlaylistReverse" = "Y" ] && youtubePlaylistReverseOpt=Y
     fi
     
     # Validate Boolean expressions for Mirror Thumbnails
@@ -1960,7 +1961,8 @@ validateProperties() {
         printError "\"$mirrorVideoThumbnails\" is an invalid boolean.  Expected Y or N on mirrorVideoThumbnails"
         propFailedValidation=Y
     else
-        [ "$mirrorVideoThumbnails" = "Y" ] || mirrorVideoThumbnails=
+        mirrorVideoThumbnailsOpt=
+        [ "$mirrorVideoThumbnails" = "Y" ] && mirrorVideoThumbnailsOpt=Y
     fi
 
     # Validate Boolean expressions for uploading videos as private
@@ -1968,7 +1970,8 @@ validateProperties() {
         printError "\"$uploadVideoAsPrivate\" is an invalid boolean.  Expected Y or N on uploadVideoAsPrivate"
         propFailedValidation=Y
     else
-        [ "$uploadVideoAsPrivate" = "Y" ] || uploadVideoAsPrivate=
+        uploadVideoAsPrivateOpt=
+        [ "$uploadVideoAsPrivate" = "Y" ] && uploadVideoAsPrivateOpt=Y
     fi
     
     # Convert Delay Length Time to number
@@ -2287,8 +2290,8 @@ getUserInfo() {
         dmMaxDescription=$dmMaxDescriptionForPartners
     else
         # Cannot upload thumbnails unless a partner
-        if [ "$mirrorVideoThumbnails" = "Y" ]; then
-            mirrorVideoThumbnails=
+        if [ "$mirrorVideoThumbnailsOpt" = "Y" ]; then
+            mirrorVideoThumbnailsOpt=
             printError "Cannot upload thumbnails unless using a Partner account!"
             printError "Please update your .prop file for mirrorVideoThumbnails=N"
             echo ""
@@ -2550,8 +2553,8 @@ publishVideo() {
         ${youtubeVideoTags:+ --data-urlencode "tags=$youtubeVideoTags"} \
         ${uploadVideoWithNextVideoIdPlayback:+ --data-urlencode "player_next_video=$uploadVideoWithNextVideoIdPlayback"} \
         ${uploadVideoWithPassword:+ --data-urlencode "password=$uploadVideoWithPassword"} \
-        ${mirrorVideoThumbnails:+ --data "thumbnail_url=$videoThumbnail"} \
-        ${uploadVideoAsPrivate:+ --data "private=true"} \
+        ${mirrorVideoThumbnailsOpt:+ --data "thumbnail_url=$videoThumbnail"} \
+        ${uploadVideoAsPrivateOpt:+ --data "private=true"} \
         ${uploadVideoAsCountryCode:+ --data "country=$uploadVideoAsCountryCode"} \
         https://api.dailymotion.com/video/$dmVideoId
         
@@ -2973,7 +2976,7 @@ editPropFile() {
     # Check for new template version of the properties file
     if [ "$propTemplateVersion" != "$propTemplateCurrentVersion" ]; then
         echo "Detected new template for the .prop file!"
-        echo "This may include new required preferance settings"
+        echo "This may include new required preference settings"
         echo "Running update command (please allow to continue)..."
         echo ""
         createPropFile
