@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.2.0
+scriptVersionNo=0.2.1
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -2181,7 +2181,7 @@ grantDailyMotionAccess() {
     # Save keys and refresh token to properties file
     echo "" >> "$propertiesFile"
     echo "" >> "$propertiesFile"
-    echo "# Dailymotion Authorised Access for $dmUsername" >> "$propertiesFile"
+    echo "# Dailymotion Authorised Account Access Keys" >> "$propertiesFile"
     echo "dmApiKey=\"$dmApiKey\"" >> "$propertiesFile"
     echo "dmApiSecret=\"$dmApiSecret\"" >> "$propertiesFile"
     echo "dmRefreshToken=\"$dmRefreshToken\"" >> "$propertiesFile"
@@ -2984,7 +2984,7 @@ editPropFile() {
 
 }
 
-propTemplateCurrentVersion=0.1
+propTemplateCurrentVersion=0.2
 blankPropFile() {
     
     # Default Properties
@@ -3087,7 +3087,7 @@ blankPropFile() {
     if ! [ -z "$dmApiKey" ]; then
         echo ""
         echo ""
-        echo "# Dailymotion Authorised Access for $dmUsername"
+        echo "# Dailymotion Authorised Account Access Keys"
         echo "dmApiKey=\"$dmApiKey\""
         echo "dmApiSecret=\"$dmApiSecret\""
         echo "dmRefreshToken=\"$dmRefreshToken\""
