@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.2.2
+scriptVersionNo=0.2.3
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -3212,7 +3212,7 @@ updateSourceCode() {
     fi
     
     # Update youtube-dl as well
-    sudo %ytdl --update
+    sudo $ytdl --update
     
     # Success
     echo ""
