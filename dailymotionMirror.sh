@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.2.1
+scriptVersionNo=0.2.2
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -3084,7 +3084,7 @@ blankPropFile() {
     echo ""
     
     # Include API keys if set
-    if ! [ -z "$dmApiKey" ]; then
+    if ! [ -z "$dmRefreshToken" ]; then
         echo ""
         echo ""
         echo "# Dailymotion Authorised Account Access Keys"
