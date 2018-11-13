@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.1.5
+scriptVersionNo=0.1.6
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1874,8 +1874,8 @@ setDefaultPropteries() {
     [ -z "$mirrorVideoThumbnails" ]                 && mirrorVideoThumbnails=N
     [ -z "$uploadVideoAppendedTags" ]               && uploadVideoAppendedTags=
     [ -z "$uploadVideoWithNextVideoIdPlayback" ]    && uploadVideoWithNextVideoIdPlayback=
-    [ -z "$uploadVideoWithPassword" ]               && uploadVideoWithPassword=
     [ -z "$uploadVideoAsPrivate" ]                  && uploadVideoAsPrivate=N
+    [ -z "$uploadVideoWithPassword" ]               && uploadVideoWithPassword=
     [ -z "$uploadVideoAsCountryCode" ]              && uploadVideoAsCountryCode=
     [ -z "$uploadVideoInCategory" ]                 && uploadVideoInCategory=
     [ -z "$uploadVideoDescrTEMPLATE" ]              && uploadVideoDescrTEMPLATE='$youtubeVideoDescr
@@ -2122,7 +2122,7 @@ revokeDailyMotionAccess() {
     dmRefreshToken=
     echo "" >> "$propertiesFile"
     echo "" >> "$propertiesFile"
-    echo "# Access Revoked for $dmUsername on $(date)" >> "$propertiesFile"
+    echo "# Dailymotion Access Revoked for $dmUsername on $(date)" >> "$propertiesFile"
     echo "dmRefreshToken=" >> "$propertiesFile"
     
     # Markup success
@@ -2178,7 +2178,7 @@ grantDailyMotionAccess() {
     # Save keys and refresh token to properties file
     echo "" >> "$propertiesFile"
     echo "" >> "$propertiesFile"
-    echo "# Authorised Access for $dmUsername" >> "$propertiesFile"
+    echo "# Dailymotion Authorised Access for $dmUsername" >> "$propertiesFile"
     echo "dmApiKey=\"$dmApiKey\"" >> "$propertiesFile"
     echo "dmApiSecret=\"$dmApiSecret\"" >> "$propertiesFile"
     echo "dmRefreshToken=\"$dmRefreshToken\"" >> "$propertiesFile"
@@ -2905,6 +2905,9 @@ createUrlsFile() {
     # Backup existing file
     if [ -f "$urlsFile" ]; then
         echo ".urls file already exists! $urlsFile"
+        promptYesNo "Do you want to skip this step? (saying no will overwrite your .urls file)"
+        [ $? -eq $ec_Yes ] && return 0
+        echo ""
         echo "creating backup (.bku) copy just encase you change your mind..."
         cp "$urlsFile" "$urlsFile.bku"
     fi
@@ -2930,9 +2933,10 @@ blankUrlsFile() {
     echo "# Below is your urls file (.urls)"
     echo "# This holds the channel(s) or playlist(s) you want mirrored"
     echo "# Paste in all your urls addresses of any channel or playlist to mirror"
-    echo "# You can return to this screen using the command option: $scriptFile --edit-urls"
-    echo "# Press Ctrl+X to exit, then type Y then Enter to save your changes"
-    echo "# (put each url on it's own line)"
+    echo "# Each url should be on it's own new line below."
+    echo "# Once done, press Ctrl+X to exit, then type Y and hit Enter to save your changes"
+    echo "# You can return to this screen at anytime using the command option:"
+    echo "#     $scriptFile --edit-urls"
     echo "# ********************"
     echo ""
     echo ""
@@ -2944,6 +2948,8 @@ createPropFile() {
     # Backup existing file
     if [ -f "$propertiesFile" ]; then
         echo ".prop file already exists! $propertiesFile"
+        promptYesNo "Do you want to skip this step? (saying no will overwrite your .prop file)"
+        [ $? -eq $ec_Yes ] && return 0
         echo "creating backup (.bku) copy just encase you change your mind..."
         cp "$propertiesFile" "$propertiesFile.bku"
     fi
@@ -2963,15 +2969,26 @@ editPropFile() {
     
     # Load and Validate the properties file
     loadPropertiesFile
+    
+    # Check for new template version of the properties file
+    if [ "$propTemplateVersion" != "$propTemplateCurrentVersion" ]; then
+        echo "Detected new template for the .prop file!"
+        echo "This may include new required preferance settings"
+        echo "Running update command (please allow to continue)..."
+        echo ""
+        createPropFile
+    fi
 
 }
 
+propTemplateCurrentVersion=0.1
 blankPropFile() {
     
     # Default Properties
     setDefaultPropteries
     
     # Create File
+    echo "propTemplateVersion=$propTemplateCurrentVersion"
     echo "# ***** READ ME ******"
     echo "# Below is your properties file (.prop) to hold all your download/upload preferences"
     echo "# Each setting has a label followed by an equals sign (=) followed by your entry"
@@ -3019,10 +3036,6 @@ blankPropFile() {
     echo "mirrorVideoThumbnails=$mirrorVideoThumbnails"
     echo ""
     echo ""
-    echo "# (REQUIRED) Set uploaded videos to private (true or false)"
-    echo "uploadVideoAsPrivate=$uploadVideoAsPrivate"
-    echo ""
-    echo ""
     echo "# (optional) Append Tags to all uploaded videos (comma separated)"
     echo "#    (Note: existing youtube tags and hash tags will be also mirrored"
     echo "uploadVideoAppendedTags=\"$uploadVideoAppendedTags\""
@@ -3031,6 +3044,10 @@ blankPropFile() {
     echo "# (optional) Suggested dailymotion video id after playback ends"
     echo "#    (Note: requires a dailymotion partner account before it actually works)"
     echo "uploadVideoWithNextVideoIdPlayback=\"$uploadVideoWithNextVideoIdPlayback\""
+    echo ""
+    echo ""
+    echo "# (REQUIRED) Set uploaded videos to private (Y or N)"
+    echo "uploadVideoAsPrivate=$uploadVideoAsPrivate"
     echo ""
     echo ""
     echo "# (optional) Set password for viewing video"
@@ -3062,6 +3079,17 @@ blankPropFile() {
     echo "#   \$youtubeChannel             = URL link to the youtube channel"
     echo "#   \$youtubeVideoTags           = All the tags from the youtube video"
     echo ""
+    
+    # Include API keys if set
+    if ! [ -z "$dmApiKey" ]; then
+        echo ""
+        echo ""
+        echo "# Dailymotion Authorised Access for $dmUsername"
+        echo "dmApiKey=\"$dmApiKey\""
+        echo "dmApiSecret=\"$dmApiSecret\""
+        echo "dmRefreshToken=\"$dmRefreshToken\""
+        echo ""
+    fi
 
 }
 
@@ -3179,6 +3207,9 @@ updateSourceCode() {
     if [ $? -ne $ec_Success ]; then
         raiseError "Failed to set executable rights to the script file!?"
     fi
+    
+    # Update youtube-dl as well
+    sudo %ytdl --update
     
     # Success
     echo ""
