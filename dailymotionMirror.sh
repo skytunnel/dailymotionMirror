@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.2.3
+scriptVersionNo=0.2.4
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1943,7 +1943,7 @@ validateProperties() {
             printError "The processingDirectory \"$processingDirectory\" does not exist!"
             propFailedValidation=Y
         else
-            processingDirectoryFull+="/"
+            processingDirectoryFull=$processingDirectory"/"
         fi
     fi
     
