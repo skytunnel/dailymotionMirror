@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.2.5
+scriptVersionNo=0.2.6
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1059,6 +1059,7 @@ processNewDownloads() {
         cp $videoListFileTmp "$videoListFile"
         rm --force $videoListFileTmp
         totalVideosRemaining=$((totalVideosRemaining+$(wc -l < "$videoListFile")))
+        echo "Total videos remaining in all url playlists:" $totalVideosRemaining
         ((totalVideosRemaining+=preExistingVideos)) #correct counter 
     fi
 
