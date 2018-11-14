@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.2.6
+scriptVersionNo=0.2.7
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -2900,7 +2900,11 @@ markAsDownloaded() {
                 > "$archiveFile"
             ;;
         *)
-            raiseError "Command not recognized !"
+            echo "validating id/url"...
+            confirmVideoId=$($ytdl --get-id -- $optMarkDoneID)
+            [ $? -ne $ec_Success ] && raiseError "Invalid ID/URL! $optMarkDoneID"
+            [ -z "$confirmVideoId" ] && raiseError "Invalid ID/URL! $optMarkDoneID"
+            echo "youtube $confirmVideoId" >> "$archiveFile"
             ;;
     esac
     echo "done"
