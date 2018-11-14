@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.2.4
+scriptVersionNo=0.2.5
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1144,17 +1144,20 @@ downloadVideo() {
         recordSkipStats
         return $ec_ContinueNext
     fi
+    
+    # Confirm ID (if url given)
+    confirmVideoId=$($ytdl --get-id -- $videoId)
         
     # Find the downloaded json file
     jsonFound=N
     for vj in ./*.$ytdlInfoExt; do
-       [ -f "$vj" ] || break
-       ytVideoId=$(queryJson "id" "$vj") || exit 1
-       if [ "$ytVideoId" = "$videoId" ]; then
+        [ -f "$vj" ] || break
+        ytVideoId=$(queryJson "id" "$vj") || exit 1
+        if [ "$ytVideoId" = "$confirmVideoId" ]; then
             jsonFound=Y
             videoJson=$vj
             break
-       fi
+        fi
     done
     if [ $jsonFound = N ]; then
         echo "json file not found after youtube download!?.  Skipping..."
