@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.2.7
+scriptVersionNo=0.3.0
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -252,6 +252,7 @@ inputArguments() {
     optUploadAvatarImage=
     optUploadBannerImage=
     optSkipStartupChecks=N
+    optUserRunUpload=N
     
     # Loop Program's Input Agruments
     for i in $arguments; do
@@ -328,18 +329,22 @@ inputArguments() {
             setRunProcedure $co_watchExistingInstance
             ;;
         --ignore-allowance)
+            optUserRunUpload=Y
             optIgnoreAllowance=Y
             ;;
         --multi-instance)
+            optUserRunUpload=Y
             optAllowMultiInstances=Y
             ;;
         --count=*)
+            optUserRunUpload=Y
             optCountOfUpload="${i#*=}"
             if [ $(isNumeric $optCountOfUpload) = N ]; then
                 raiseError "--count=NUM must be numeric!"
             fi
             ;;
         --single-video=*)
+            optUserRunUpload=Y
             optUploadSpecificVideoID="${i#*=}"
             ;;
         --update)
@@ -360,6 +365,7 @@ inputArguments() {
         echo "optDebug:                 " $optDebug
         echo "optKeepLogFile:           " $optKeepLogFile
         echo "optRunProcedure:          " $optRunProcedure
+        echo "optUserRunUpload:         " $optUserRunUpload
         echo "optCountOfUpload:         " $optCountOfUpload
         echo "optUploadSpecificVideoID: " $optUploadSpecificVideoID
         echo "optIgnoreAllowance:       " $optIgnoreAllowance
@@ -453,6 +459,10 @@ getExistingInstance() {
 
 }
 
+printExistingInstanceInfo() {
+    echo "$scriptFile has already been running since $existingProcessStart (pid: $existingProcessId )"
+}
+
 exitOnExistingInstance() {
     
     # Info on existing instance
@@ -464,15 +474,7 @@ exitOnExistingInstance() {
 
     # If it's the same as the locked instance, then exit
     if [ $lockedProccessId -gt 0 ] && [ $lockedProccessId -eq $existingProcessId ]; then
-        echo "$scriptFile has already been running since $existingProcessStart (pid: $existingProcessId )"
-        
-        # Watch the log instead?
-        echo ""
-        promptYesNo "Would you like to watch the log of this running instance?)"
-        [ $? -eq $ec_Yes ] || exit
-        watchExistingInstance
-        
-        exit
+        raiseError $(printExistingInstanceInfo)
     fi
 
     # Record this process id on the lock file
@@ -512,15 +514,32 @@ watchExistingInstance() {
     # Info on existing instance
     getExistingInstance
     
-    # Exit if no instance
+    # Show last log if no existing instance to follow
     if [ $existingProcessId -eq 0 ]; then
-        echo "No running instance found!"
-        promptYesNo "Would you like to display the log from the last run instance?"
+        echo "There is no existing instance of this script running!"
+        promptYesNo "Would you like to display the log from the last ran instance?"
         [ $? -eq $ec_Yes ] || exit
-    fi
+        
+        # Show full log file
+        tail --lines=+1 "$logFile"
+        
+    else
+    
+        # Confirm if user wants to watch the current log
+        printExistingInstanceInfo
+        echo ""
+        promptYesNo "Would you like to watch the log of this running instance?"
+        [ $? -eq $ec_Yes ] || exit
 
-    # Real time view of the log
-    tail -f -n +1 "$logFile"
+        # Real time view of the log
+        tail --follow --pid=$existingProcessId --lines=+1 "$logFile"
+        
+        # Confirm complete
+        echo ""
+        echo ""
+        echo "Stopped watching the log because the process ended"
+    
+    fi
 
 }
 
@@ -649,21 +668,6 @@ main() {
     # Check if existing process running this script
     [ $optAllowMultiInstances = Y ] || exitOnExistingInstance
     mainProcedureActivated=Y
-    
-    # Warning if run from terminal when schedule is setup
-    if [ -t 0 ] && [ -f "$cronJobFile" ]; then
-        echo "Everything is already setup!"
-        echo "Try the --help command to see other available options"
-        echo ""
-        echo "Running this command here will start an upload outside of your set schedule"
-        echo "Try using --edit-schedule command if you want to change when this code runs"
-        echo ""
-        promptYesNo "Are you sure you want to start uploading outside of your set schedule?"
-        if ! [ $? -eq $ec_Yes ]; then
-            releaseInstance
-            exit
-        fi
-    fi
     
     # Record start time
     mainStartTime=$(date +%s)
@@ -821,7 +825,7 @@ getVideoDuration() {
     
     # Query Cache file for video ID
     if [ -f "$videoCacheFile" ]; then
-        cachedInfo=$(grep -m 1 "^$videoId " "$videoCacheFile")
+        cachedInfo=$(grep --max-count=1 "^$videoId " "$videoCacheFile")
     fi
     
     # Take duration from cache
@@ -1176,29 +1180,35 @@ splitVideoRoutine() {
         return $ec_ContinueNext
     fi
     
-    # Get the file-size
-    videoFileSize=($(du --bytes "$videoFilePath"))
-    videoFileSize=${videoFileSize[0]}
-    
-    # Is split required for file size
-    if [ $dmMaxVideoSize -gt 0 ] && [ $videoFileSize -gt $dmMaxVideoSizeTolerance ]; then
-        echo "Video file size is too big ($videoFileSize)"
-        
-        # Estimate size after existing duration split (if any)
-        [ $videoSplits -le 1 ] && videoSplits=2
-        videoFileSizeSplit=$((videoFileSize/videoSplits))
-        echo "Testing split size of $videoSplits ($videoFileSizeSplit)..."
-    
-        # Adjust split size to keep under max video size
-        while [ $videoFileSizeSplit -gt $dmMaxVideoSizeTolerance ]; do
-            ((videoSplits++))
+    # Recalculate the split size encase video was was trimmed after duration was cached
+    if [ $videoSplits -gt 1 ]; then
+        if [ $dmMaxVideoDuration -gt 0 ] && [ $videoDuration -gt $dmMaxVideoDuration ]; then
+            videoSplits=$((videoDuration/dmMaxVideoDuration+1))
+        fi
+    else
+        # Is split required for file size
+        videoFileSize=($(du --bytes "$videoFilePath"))
+        videoFileSize=${videoFileSize[0]}
+        if [ $dmMaxVideoSize -gt 0 ] && [ $videoFileSize -gt $dmMaxVideoSizeTolerance ]; then
+            echo "Video file size is too big ($videoFileSize)"
+            
+            # Estimate size after existing duration split (if any)
+            [ $videoSplits -le 1 ] && videoSplits=2
             videoFileSizeSplit=$((videoFileSize/videoSplits))
             echo "Testing split size of $videoSplits ($videoFileSizeSplit)..."
-        done
         
-        echo "Contining with $videoSplits video splits..."
+            # Adjust split size to keep under max video size
+            while [ $videoFileSizeSplit -gt $dmMaxVideoSizeTolerance ]; do
+                ((videoSplits++))
+                videoFileSizeSplit=$((videoFileSize/videoSplits))
+                echo "Testing split size of $videoSplits ($videoFileSizeSplit)..."
+            done
+            
+            echo "Contining with $videoSplits video splits..."
+        fi
     fi
     
+    # Process any splits
     if [ $videoSplits -gt 1 ]; then
         
         # Make temporary directory to hold json files with split info
@@ -1416,9 +1426,16 @@ prepareForUpload() {
     timeTillQuit=$((dmUploadQuitingTime-$(date +%s)))
     if [ $waitingTime -gt $timeTillQuit ]; then
         echo "Video should be picked up by next scheduled run..."
-        echo "Quitting..."
         recordSkipStats
-        return $ec_BreakLoop
+        
+        # Unless the target hasn't been reached yet
+        if [ $remainingDurationMAX -le $targetRemainingDuration ]; then
+            echo "Quitting..."
+            return $ec_BreakLoop
+        else
+            echo "Skipping..."
+            return $ec_ContinueNext
+        fi
     fi
     
 }
@@ -1826,6 +1843,52 @@ dailyMotionFirstTimeSetup() {
 
 }
 
+validateSetup() {
+    
+    # Default response
+    setupValidated=Y
+    
+    # Ensure urls file exists
+    if ! [ -f "$urlsFile" ]; then
+        setupValidated=N
+        printError "urls file not found! $urlsFile"
+        echo "Use the command --edit-urls to setup"
+    fi
+    
+    # Ensure properties file exists
+    if ! [ -f "$propertiesFile" ]; then
+        setupValidated=N
+        printError "prop file not found! $propertiesFile"
+        echo "Use the command --edit-prop to setup"
+    else
+        # Ensure a refesh token exists
+        dmRefreshToken=$(grep \
+            --perl-regexp \
+            --only-matching \
+            '^dmRefreshToken=\K.*' \
+            "$propertiesFile" \
+        )
+        if [ -z "$dmRefreshToken" ]; then
+            setupValidated=N
+            printError "Connection to dailymotion has not been confirmed!"
+            echo "Try the command --grant-access to setup again"
+        fi
+    fi
+    
+    # Ensure the schedule file exists
+    if ! [ -f "$cronJobFile" ]; then
+        setupValidated=N
+        printError "No cron schedule detected"
+        echo "Use the command --edit-schedule to setup"
+    fi
+    
+    # Suggest to rerun the setup
+    if [ $setupValidated = N ]; then
+        echo "Alternativly run the command --first-time-setup to start from scratch"
+    fi
+    
+}
+
 dailyMotionReLogin() {
 
     # Load the properties file
@@ -1905,6 +1968,7 @@ loadPropertiesFile() {
     
     # Load properties from users set file
     . "$propertiesFile"
+    [ $? -eq $ec_Success ] || raiseError "Failure occured while loadind .prop file: $propertiesFile"
     
     # Validate the properties
     validateProperties
@@ -2378,13 +2442,21 @@ checkServerTimeOffset() {
     echo "Local PC Time:                 " $(date -d @$localPCTime)
     echo "Dailymotion Time:              " $(date -d @$dmTime)
     echo "Time Difference:               " $dmTimeOffset " seconds"
+    echo ""
     
-    # Delete the playlist
-    dmServerResponse=$(curl --silent --request DELETE \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        https://api.dailymotion.com/playlist/$dmPlaylistID
-    )
-    dmDeleteError=$(queryJson "error" "$dmServerResponse") || exit 1
+    # Delete the playlist (done on loop as it did fail to delete once)
+    deleteTimeout=$(date +%s -d "+ 60 seconds")
+    until [ $(date +%s) -gt $deleteTimeout ]; do
+        dmServerResponse=$(curl --silent --request DELETE \
+            --header "Authorization: Bearer ${dmAccessToken}" \
+            https://api.dailymotion.com/playlist/$dmPlaylistID
+        )
+        dmDeleteError=$(queryJson "error" "$dmServerResponse") || exit 1
+        [ "$dmDeleteError" = "null" ] && break
+        sleep 3
+    done
+    
+    # Print Error if failed to delete
     if ! [ "$dmDeleteError" = "null" ]; then
         raiseError "Failed to delete playlist id $dmPlaylistID ?"\
             $'\n'"Response from server: "\
@@ -3232,17 +3304,63 @@ testCodeDevONLY() {
     echo "nothing to test here :)"
 }
 
+defaultProcedure() {
+
+    # Standard run when not in interactive mode
+    if ! [ -t 0 ]; then
+        main > "$logFile" 2>&1
+        
+    else
+        # Has user specified they want to do an upload?
+        echo ""
+        if [ $optUserRunUpload = Y ]; then
+        
+            # Double check they want to run outside of schedule
+            echo "Running this command will start an upload outside of your set schedule"
+            echo "Try using the --edit-schedule command if you want to change when this code runs"
+            echo ""
+            promptYesNo "Are you sure you want to start uploading outside of your set schedule?"
+            [ $? -eq $ec_Yes ] || exit
+
+            # Start the main procedure
+            main
+            
+        else
+        
+            # Has the first schedule run yet? (based on existance of log file)
+            if [ -f "$logFile" ]; then
+                watchExistingInstance
+            else
+                
+                # Validate everything is setup
+                echo "Validating your setup..."
+                validateSetup
+            
+                # Tell the user everything has been setup
+                echo ""
+                if [ $setupValidated = Y ]; then
+                    echo "Everything has now been setup!"
+                    echo "Please wait for the first scheduled run to kick in before looking for results"
+                    echo "You can review/change your scheduled time by using the command --edit-schedule"
+                    echo ""
+                    echo "Try using the --help command if you are looking for other options"
+                else
+                    raiseError "Validation failed!"
+                fi
+            fi
+            exit
+        fi
+    fi
+
+}
+
 procedureSelection() {
 
     case $optRunProcedure in
         
-        # Standard routine (Interactive Mode)
+        # Standard routine
         $co_mainProcedure)
-            if [ -t 0 ]; then
-                main
-            else
-                main > "$logFile" 2>&1
-            fi
+            defaultProcedure
             ;;
         
         # First Time setup procedure
