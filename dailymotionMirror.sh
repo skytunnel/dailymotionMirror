@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.3.1
+scriptVersionNo=0.3.2
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -122,7 +122,7 @@ installDependencies() {
         # User Confirm
         installRequired=Y
         echo ""
-        echo "The following packages will be install on your device (if not already there)..."
+        echo "The following packages will be installed on your device (if not already there)..."
         echo "    curl          - used for talking with the dailymotion api"
         echo "    cron          - used to schedule this script to run automatically"
         echo "    jq            - used to interpret the json formatted returns from dailymotion"
