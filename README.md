@@ -3,6 +3,7 @@ Uses the dailymotion api to mirror videos from a given youtube playlist download
 
 # Installation
 Run the following commands in a new directory (whereever you want to manage it from)
+    
     wget "https://raw.githubusercontent.com/skytunnel/dailymotionMirror/master/dailymotionMirror.sh" --output-document dailymotionMirror.sh
     sudo chmod a+rx dailymotionMirror.sh
 
