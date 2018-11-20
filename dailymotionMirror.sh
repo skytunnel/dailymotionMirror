@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.3.3
+scriptVersionNo=0.3.4
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1794,7 +1794,7 @@ dailyMotionFirstTimeSetup() {
     echo "Entering First-Time-Setup mode..."    
     
     # Interactive mode required
-    [ -t 0 ] || raiseError "dailyMotionFirstTimeSetup must only be run from terminal manually!"  
+    [ -t 0 ] || raiseError "dailyMotionFirstTimeSetup must only be run from the terminal manually!"  
     
     # Install Dependencies
     installDependencies
@@ -3143,7 +3143,7 @@ blankPropFile() {
     echo ""
     echo ""
     echo "# (optional) Append Tags to all uploaded videos (comma separated)"
-    echo "#    (Note: existing youtube tags and hash tags will be also mirrored"
+    echo "#    (Note: existing youtube tags and hash tags will be also mirrored)"
     echo "uploadVideoAppendedTags=\"$uploadVideoAppendedTags\""
     echo ""
     echo ""
