@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.3.2
+scriptVersionNo=0.3.3
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -122,7 +122,7 @@ installDependencies() {
         # User Confirm
         installRequired=Y
         echo ""
-        echo "The following packages will be installed on your device (if not already there)..."
+        echo "The following packages will be installed on your device..."
         echo "    curl          - used for talking with the dailymotion api"
         echo "    cron          - used to schedule this script to run automatically"
         echo "    jq            - used to interpret the json formatted returns from dailymotion"
@@ -166,8 +166,8 @@ installDependencies() {
         installRequired=Y
         echo ""
         echo "The following program will be downloaded to your device..."
-        echo "    youtube-dl - service for downloading youtube videos"
-        echo "    source code: $ytdlSource"
+        echo "    youtube-dl    - service for downloading youtube videos"
+        echo "    source code:  $ytdlSource"
         echo ""
         promptYesNo "Are you happy to continue?..."
         [ $? -eq $ec_Yes ] || exit
@@ -181,25 +181,48 @@ installDependencies() {
 }
 
 startupChecks() {
-
-    # Check if first time setup required (if no schedule is setup)
-    if ! [ -f "$cronJobFile" ]; then
-        echo "No cron schedule detected!"
+    
+    # Default return
+    startupConfirmed=Y
+    
+    # Ensure required packages exist
+    if [ -z $(command -v curl) ]; then
+        startupConfirmed=N
+        printError "curl command not found!  Please install"
+    fi
+    if [ -z $(command -v jq) ]; then
+        startupConfirmed=N
+        printError "jq command not found!  Please install"
+    fi
+    if [ -z $(command -v avconv) ] && [ -z $(command -v ffmpeg) ]; then
+        startupConfirmed=N
+        printError "ffmpeg or avconv commands not found!  Please install"
+    fi
+    if ! [ -f $ytdl ]; then
+        startupConfirmed=N
+        printError "youtube-dl command not found!  Please install"
+    fi
+    if [ -z $(command -v crontab) ]; then
+        startupConfirmed=N
+        printError "crontab command not found!  Please install"
+    else
+        # Check if cron schedule setup
+        if ! [ -f "$cronJobFile" ]; then
+            startupConfirmed=N
+            printError "No cron schedule detected!  Use the --edit-schedule command to setup"
+        fi
+    fi
+    
+    # Trigger First-Time-Setup if anything is missing
+    if [ $startupConfirmed != Y ]; then
         echo ""
         dailyMotionFirstTimeSetup
         exit
     fi
     
-    # Ensure required packages exist
-    [ -f $ytdl ]                    || raiseError "youtube-dl command not found!  Please install"
-    [ -z $(command -v curl) ]       && raiseError "curl command not found!  Please install"
-    [ -z $(command -v jq) ]         && raiseError "jq command not found!  Please install"
-    [ -z $(command -v crontab) ]    && raiseError "crontab command not found!  Please install"
-    [ -z $(command -v avconv) ] && [ -z $(command -v ffmpeg) ] && raiseError "ffmpeg or avconv commands not found!  Please install"
-    
     # Markup if using ffmpeg
     useFFMPEG=N
-    [ -z $(command -v ffmpeg) ] || useFFMPEG=Y
+    [ $startupConfirmed = Y ] && [ -z $(command -v ffmpeg) ] || useFFMPEG=Y
     
 }
 
@@ -1828,6 +1851,13 @@ dailyMotionFirstTimeSetup() {
     # Create usage file from uploads to account info
     [ -f "$allowanceFile" ] || rebuildAllowanceFile
     
+    # Validate the setup before scheduling (schedule is check on the startup checks anyway)
+    validateSetup
+    if [ $setupValidated != Y ]; then
+        echo ""
+        raiseError "First-Time-Setup NOT complete.  To start again, try the command --first-time-setup"
+    fi
+    
     # Create Cron Job Schedule
     echo ""
     echo ""
@@ -1852,14 +1882,14 @@ validateSetup() {
     if ! [ -f "$urlsFile" ]; then
         setupValidated=N
         printError "urls file not found! $urlsFile"
-        echo "Use the command --edit-urls to setup"
+        echo "Use the command --edit-urls to setup again"
     fi
     
     # Ensure properties file exists
     if ! [ -f "$propertiesFile" ]; then
         setupValidated=N
         printError "prop file not found! $propertiesFile"
-        echo "Use the command --edit-prop to setup"
+        echo "Use the command --edit-prop to setup again"
     else
         # Ensure a refesh token exists
         dmRefreshToken=$(grep \
@@ -1873,13 +1903,6 @@ validateSetup() {
             printError "Connection to dailymotion has not been confirmed!"
             echo "Try the command --grant-access to setup again"
         fi
-    fi
-    
-    # Ensure the schedule file exists
-    if ! [ -f "$cronJobFile" ]; then
-        setupValidated=N
-        printError "No cron schedule detected"
-        echo "Use the command --edit-schedule to setup"
     fi
     
     # Suggest to rerun the setup
@@ -3309,7 +3332,6 @@ defaultProcedure() {
     # Standard run when not in interactive mode
     if ! [ -t 0 ]; then
         main > "$logFile" 2>&1
-        
     else
         # Has user specified they want to do an upload?
         echo ""
