@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.3.4
+scriptVersionNo=0.3.5
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -439,7 +439,7 @@ helpMenu() {
     echo "$(wrapHelpColumn "      --stop-schedule     " "Completely stop the schedule from running this script automatically.  Requires root")"
     echo "$(wrapHelpColumn "      --upload-avatar=IMG " "Set the IMG to a image file location that you wanted uploaded as the accounts Avatar")"
     echo "$(wrapHelpColumn "      --upload-banner=IMG " "Set the IMG to a image file location that you wanted uploaded as the accounts Cover Banner")"
-    echo "$(wrapHelpColumn "      --show-dm-uploads   " "Query dailymotion what videos where uploaded in last 24 hours, and compare to local tracking file (for debugging why limits were might have exceeded)")"
+    echo "$(wrapHelpColumn "      --show-dm-uploads   " "Query with dailymotion what videos where uploaded in last 24 hours, and compare to local tracking file (for debugging why limits might have exceeded)")"
     echo "$(wrapHelpColumn "      --sync-dm-uploads   " "Same as above, but outputs the dailymotion results to the local allowance tracking file for use during uploads.  Use this if you manually uploaded a video and need this script to account for it when uploading more.  DO NOT USE if you are maintaining mutliple dailymotion accounts on the same internet connection.")"  
     echo "$(wrapHelpColumn "      --mark-done=ID      " "Mark the given youtube ID as downloaded")"
     echo "$(wrapHelpColumn "                          " "or =ALL to mark all videos in the .urls file as downloaed (e.g. only upload new videos)")"
