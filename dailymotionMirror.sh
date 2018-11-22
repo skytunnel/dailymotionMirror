@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.3.7
+scriptVersionNo=0.3.8
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -2000,7 +2000,7 @@ loadPropertiesFile() {
     [ $? -eq $ec_Success ] || raiseError "Failure occured while loadind .prop file: $propertiesFile"
     
     # Check for new template version of the properties file (and update if needed)
-    updatePropFile    
+    updatePropFile || exit
     
     # Validate the properties
     validateProperties
@@ -3113,10 +3113,16 @@ updatePropFile() {
         echo "Saving backup (.bku) file before making changes"
         echo ""
         
-        # Attempt update
+        # Attempt update (don't call the create procedure, because it tries to edit afterwards)
         attemptedPropFileUpdate=Y
-        mv "$propertiesFile" "$propertiesFile.bku" # move to avoid user prompt in non-interactive mode
-        createPropFile
+        cp "$propertiesFile" "$propertiesFile.bku"
+        blankPropFile > "$propertiesFile"
+        
+        # Reload properties to get newest values
+        loadPropertiesFile
+        
+        # Return error to force previous call from loadPropertiesFile to quit
+        return $ec_Error
     fi
 
 }
