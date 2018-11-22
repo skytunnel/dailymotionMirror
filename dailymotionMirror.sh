@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.3.9
+scriptVersionNo=0.4.0
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -403,7 +403,8 @@ inputArguments() {
 helpMenu() {
 
     # Print basic header info
-    echo "Usage: "$scriptFile" [OPTION]"
+    echo "Usage:   " $scriptFile" [OPTION]"
+    echo "Version: " $scriptVersionNo
     echo ""
     echo "Downloads a given set of YouTube videos on the matching .urls file and uploads them to a dailymotion.com account." | fold -s
     echo "Recommended to schedule run every 24 hours (see --edit-schedule)" | fold -s
@@ -429,16 +430,16 @@ helpMenu() {
     echo ""
     echo "  SPECIAL COMMAND OPTIONS (only one allowed)"
     echo "$(wrapHelpColumn "      --update            " "Download the latest release of this script and replace the current version with it.  Requires root")"
-    echo "$(wrapHelpColumn "      --first-time-setup  " "Triggers automatically on first run (WARNING - running this will reset your login and perferences!).  Requires root")"
-    echo "$(wrapHelpColumn "      --grant-access      " "Trigger prompt for dailymotion login details.  WARNING this will remove any existing saved login")"
-    echo "$(wrapHelpColumn "      --revoke-access     " "Revoke all access to the given dailymotion access (if you want to stop using this).  Requires root")"
-    echo "$(wrapHelpColumn "      --change-username   " "Provides access to change your dailymotion username account for the channel url (may not work on all accounts)")"    
     echo "$(wrapHelpColumn "      --edit-prop         " "Bring up the editor for the properties file to change how the video is published")"
     echo "$(wrapHelpColumn "      --edit-urls         " "Bring up the editor for the file which holds the urls of the playlists/channels to download")"
     echo "$(wrapHelpColumn "      --edit-schedule     " "Bring up the editor for the cron job which schedules this script to run.  Requires root")"
     echo "$(wrapHelpColumn "      --stop-schedule     " "Completely stop the schedule from running this script automatically.  Requires root")"
+    echo "$(wrapHelpColumn "      --grant-access      " "Trigger prompt for dailymotion login details.  WARNING this will remove any existing saved login")"
+    echo "$(wrapHelpColumn "      --revoke-access     " "Revoke all access to the given dailymotion access (if you want to stop using this).  Requires root")"
+    echo "$(wrapHelpColumn "      --change-username   " "Provides access to change your dailymotion username account for the channel url (may not work on all accounts)")"    
     echo "$(wrapHelpColumn "      --upload-avatar=IMG " "Set the IMG to a image file location that you wanted uploaded as the accounts Avatar")"
     echo "$(wrapHelpColumn "      --upload-banner=IMG " "Set the IMG to a image file location that you wanted uploaded as the accounts Cover Banner")"
+    echo "$(wrapHelpColumn "      --first-time-setup  " "Triggers automatically on first run (WARNING - running this will reset your login and perferences!).  Requires root")"
     echo "$(wrapHelpColumn "      --show-dm-uploads   " "Query with dailymotion what videos where uploaded in last 24 hours, and compare to local tracking file (for debugging why limits might have exceeded)")"
     echo "$(wrapHelpColumn "      --sync-dm-uploads   " "Same as above, but outputs the dailymotion results to the local allowance tracking file for use during uploads.  Use this if you manually uploaded a video and need this script to account for it when uploading more.  DO NOT USE if you are maintaining mutliple dailymotion accounts on the same internet connection.")"  
     echo "$(wrapHelpColumn "      --mark-done=ID      " "Mark the given youtube ID as downloaded")"
