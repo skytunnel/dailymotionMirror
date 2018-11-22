@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.4.0
+scriptVersionNo=0.4.1
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -402,14 +402,6 @@ inputArguments() {
 
 helpMenu() {
 
-    # Print basic header info
-    echo "Usage:   " $scriptFile" [OPTION]"
-    echo "Version: " $scriptVersionNo
-    echo ""
-    echo "Downloads a given set of YouTube videos on the matching .urls file and uploads them to a dailymotion.com account." | fold -s
-    echo "Recommended to schedule run every 24 hours (see --edit-schedule)" | fold -s
-    echo ""
-    
     # Prepare wrap settings (done here for speed improvement)
     prefixLength=26
     prefixSpaces="$(for ((i=1; i<=$prefixLength; i++)); do echo -n " "; done)"
@@ -417,6 +409,14 @@ helpMenu() {
     wrapLength=$((consoleColumns-prefixLength))
     doWrap=N
     [ $wrapLength -gt 20 ] && doWrap=Y
+
+    # Print basic header info
+    echo "Usage:   " $scriptFile" [OPTION]"
+    echo "Version: " $scriptVersionNo
+    echo ""
+    echo "Downloads a given set of YouTube videos on the matching .urls file and uploads them to a dailymotion.com account." | fold -s --width=$consoleColumns
+    echo "Recommended to schedule run every 24 hours (see --edit-schedule)" | fold -s --width=$consoleColumns
+    echo ""
 
     # Print options
     echo "OPTIONS"
