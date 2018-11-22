@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.3.8
+scriptVersionNo=0.3.9
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -432,7 +432,7 @@ helpMenu() {
     echo "$(wrapHelpColumn "      --first-time-setup  " "Triggers automatically on first run (WARNING - running this will reset your login and perferences!).  Requires root")"
     echo "$(wrapHelpColumn "      --grant-access      " "Trigger prompt for dailymotion login details.  WARNING this will remove any existing saved login")"
     echo "$(wrapHelpColumn "      --revoke-access     " "Revoke all access to the given dailymotion access (if you want to stop using this).  Requires root")"
-    #echo "$(wrapHelpColumn "      --change-username   " "Provides access to change your dailymotion username account for the channel url")"    
+    echo "$(wrapHelpColumn "      --change-username   " "Provides access to change your dailymotion username account for the channel url (may not work on all accounts)")"    
     echo "$(wrapHelpColumn "      --edit-prop         " "Bring up the editor for the properties file to change how the video is published")"
     echo "$(wrapHelpColumn "      --edit-urls         " "Bring up the editor for the file which holds the urls of the playlists/channels to download")"
     echo "$(wrapHelpColumn "      --edit-schedule     " "Bring up the editor for the cron job which schedules this script to run.  Requires root")"
@@ -2417,14 +2417,14 @@ getUserInfo() {
 
 # Disabled this because it doesn't allow the rights to change??
 dmChangeUsername() {
-
+    
     # Confirm current username
     echo ""
     echo "Current dailymotion username: " $dmUsername
     echo ""
     
     # Prompt for new name
-    read -r -p "Change username to: " dmUsername
+    read -e -r -p "Change username to: " -i "$dmUsername" dmUsername
     
     # Exit if not provided
     if [ -z "$dmUsername" ]; then
