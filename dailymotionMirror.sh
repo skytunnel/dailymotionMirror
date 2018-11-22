@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.3.5
+scriptVersionNo=0.3.6
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -127,7 +127,7 @@ installDependencies() {
         echo "    cron          - used to schedule this script to run automatically"
         echo "    jq            - used to interpret the json formatted returns from dailymotion"
         echo ""
-        promptYesNo "Are you happy to continue?..."
+        promptYesNo "Are you happy to continue"
         [ $? -eq $ec_Yes ] || exit
         
         # Install Required Packages
@@ -146,7 +146,7 @@ installDependencies() {
         echo "    libav-tools   - used for splitting videos to fit max video size"
         echo "Your system may only support one of these, so both will be attempted..."
         echo ""
-        promptYesNo "Are you happy to continue?..."
+        promptYesNo "Are you happy to continue"
         [ $? -eq $ec_Yes ] || exit
         
         # Try install ffmpeg
@@ -169,7 +169,7 @@ installDependencies() {
         echo "    youtube-dl    - service for downloading youtube videos"
         echo "    source code:  $ytdlSource"
         echo ""
-        promptYesNo "Are you happy to continue?..."
+        promptYesNo "Are you happy to continue"
         [ $? -eq $ec_Yes ] || exit
         
         # Install Youtube-dl
@@ -521,7 +521,7 @@ killExistingInstance() {
     fi
     
     # Are you sure?
-    promptYesNo "Do you wish to kill the existing instance running since $existingProcessStart (pid: $existingProcessId )"
+    promptYesNo "Kill the existing instance running since $existingProcessStart, pid: $existingProcessId"
     [ $? -eq $ec_Yes ] || exit
     
     # Kill the existing instance
@@ -540,7 +540,7 @@ watchExistingInstance() {
     # Show last log if no existing instance to follow
     if [ $existingProcessId -eq 0 ]; then
         echo "There is no existing instance of this script running!"
-        promptYesNo "Would you like to display the log from the last ran instance?"
+        promptYesNo "Would you like to display the log from the last ran instance"
         [ $? -eq $ec_Yes ] || exit
         
         # Show full log file
@@ -551,7 +551,7 @@ watchExistingInstance() {
         # Confirm if user wants to watch the current log
         printExistingInstanceInfo
         echo ""
-        promptYesNo "Would you like to watch the log of this running instance?"
+        promptYesNo "Would you like to watch the log of this running instance"
         [ $? -eq $ec_Yes ] || exit
 
         # Real time view of the log
@@ -624,20 +624,23 @@ function timeInSeconds() {
 # function to prompt user for yes/no response
 function promptYesNo() {
     echo ""
-    echo "$@"
-    select yn in "Yes" "No"; do
-        case $yn in
-            Yes )
-                return $ec_Yes
+    returnResponse=$ec_Error
+    read -s -r -p "$@ (Y/N)?" -n 1 userResponse
+    while true; do
+        case $userResponse in
+            Y|y)
+                returnResponse=$ec_Yes
                 break
                 ;;
-            No ) 
-                return $ec_No
+            N|n)
+                returnResponse=$ec_No
                 break
                 ;;
         esac
-        echo "Please enter a number from the choices listed above"
+        read -s -r -n 1 userResponse
     done
+    echo "" #link break
+    return $returnResponse
 }
 
 # function to manage query of json file
@@ -864,7 +867,7 @@ getVideoDuration() {
         if [ $? -ne $ec_Success ]; then
             rm $tmpJson
             printError "Failed to downloaded info for video id "$videoId
-            [ -t 0 ] && read -p "Press enter to continue, or Ctrl+C to quit..."
+            [ -t 0 ] && read -s -r -p "Press enter to continue, or Ctrl+C to quit..."
             recordSkipStats
             return $ec_ContinueNext
         fi
@@ -875,8 +878,10 @@ getVideoDuration() {
 
         # Apply Live Stream Check Delay Rules (as per properties file)
         if [ $videoDate -gt $delayDownloadsAfter ] && [ $videoDuration -gt $delayDownloadDuration ]; then
-            echo "Skipping video id "$videoId" to allow time for trimming (uploaded on $videoDateStr )"
-            echo "Video Duration:    " $(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
+            delayedUntil=$(date +%s -d "$videoDateStr + $delayedVideosWillBeUploadedAfter")
+            delayedDays=$(((delayedUntil-$(date +%s))/86400+1))
+            echo "Delaying video id "$videoId" for "$delayedDays" days.  Duration is "$(date +%T -u -d @$videoDuration)
+            echo "(Due to property settings on delayDownloadIfVideoIsLongerThan and delayedVideosWillBeUploadedAfter)"
             recordSkipStats
             return $ec_ContinueNext
         fi
@@ -992,9 +997,9 @@ getYouTubeInfoFromJson() {
     youtubeVideoTags=${youtubeVideoTagsList//$'\n'/,}
     
     # Show all details on debug
+    echo "Prcoessing: " $videoTitle
     if [ $optDebug = Y ]; then
         echo "Filename:    " $videoFilename
-        echo "Title:       " $videoTitle
         echo "Upload Date: " $youtubeVideoUploadDate
         echo "Channel:     " $youtubeChannel
         echo "Video ID:    " $ytVideoId
@@ -1070,7 +1075,7 @@ processNewDownloads() {
     getFullListOfVideos > "$videoListFile"
     if [ $? -ne $ec_Success ]; then
         printError "Failed to get video list"
-        [ -t 0 ] && read -p "Press enter to continue, or Ctrl+C to quit..."
+        [ -t 0 ] && read -s -r -p "Press enter to continue, or Ctrl+C to quit..."
     fi
     
     # Compare with .done file to see what's new
@@ -1107,7 +1112,7 @@ processNewDownloads() {
         
         # Quit if spent too much time not uploading anything (only just for video duration that will fit)
         if [ $(date +%s) -gt $stopVideoDurationSearch ]; then
-            echo "Timed out!  Cannot find video to fit remaining upload allowance"
+            echo "Cannot find video to fit remaining upload allowance within specified timeout period (i.e durationAllowanceSearchTimeout)"
             break
         fi
         
@@ -1168,7 +1173,7 @@ downloadVideo() {
         -- $videoId
     if [ $? -ne $ec_Success ]; then
         printError "Failed to download video id" $videoId
-        [ -t 0 ] && read -p "Press enter to continue, or Ctrl+C to quit..."
+        [ -t 0 ] && read -s -r -p "Press enter to continue, or Ctrl+C to quit..."
         recordSkipStats
         return $ec_ContinueNext
     fi
@@ -1808,7 +1813,7 @@ dailyMotionFirstTimeSetup() {
     if [ -f "$propertiesFile" ]; then
         echo "WARNING .prop file already exists!"
         echo ""
-        promptYesNo "Are you sure you want to continue? (this will reset everything!)"
+        promptYesNo "This will revert your settings. Are you sure you want to continue"
         [ $? -eq $ec_Yes ] || exit
         
         # Load the properties file
@@ -1820,7 +1825,7 @@ dailyMotionFirstTimeSetup() {
             echo ""
             getDailyMotionAccess
             if ! [ -z "$dmAccessToken" ]; then
-                promptYesNo "Are you sure you want to revoke the existing access rights to dailymotion and setup again?"
+                promptYesNo "Are you sure you want to revoke the existing access rights to dailymotion and setup again"
                 [ $? -eq $ec_Yes ] || exit
                 revokeDailyMotionAccess
             fi
@@ -1833,13 +1838,13 @@ dailyMotionFirstTimeSetup() {
     echo "Initializing First Time Setup..."
     echo "You will be moved to a file editor to provide further information"
     echo ""
-    read -p "Press enter to continue..."
+    read -s -r -p "Press enter to continue..."
     createUrlsFile
     
     # Get user to author the settings in the properties files
     echo ".urls file successfully created.  Moving on to create properties file..."
     echo ""
-    read -p "Press enter to continue..."
+    read -s -r -p "Press enter to continue..."
     createPropFile
     echo ".prop file successfully created"
      
@@ -1865,7 +1870,7 @@ dailyMotionFirstTimeSetup() {
     echo "Last step is to setup this script to run automatically on schedule."
     echo "You will be moved to another file editor where you can override the randomly assigned minute/hour schedule"
     echo ""
-    read -p "Press enter to continue..."
+    read -s -r -p "Press enter to continue..."
     editCronFile
     
     # Confirm
@@ -1921,7 +1926,7 @@ dailyMotionReLogin() {
     if ! [ -z "$dmRefreshToken" ]; then
         getDailyMotionAccess
         if ! [ -z "$dmAccessToken" ]; then
-            promptYesNo "Access is already granted.  Do you want to revoke the existing access and login again?"
+            promptYesNo "Access is already granted. Do you want to revoke the existing access and login again"
             [ $? -eq $ec_Yes ] || exit
             revokeDailyMotionAccess
         fi
@@ -1956,6 +1961,7 @@ setDefaultPropteries() {
 
     # Default Properties
     [ -z "$processingDirectory" ]                   && processingDirectory=
+    [ -z "$keepDownloadedVideos" ]                  && keepDownloadedVideos=N
     [ -z "$youtubePlaylistReverse" ]                && youtubePlaylistReverse=N
     [ -z "$delayDownloadIfVideoIsLongerThan" ]      && delayDownloadIfVideoIsLongerThan="60 minutes"
     [ -z "$delayedVideosWillBeUploadedAfter" ]      && delayedVideosWillBeUploadedAfter="7 days"
@@ -2000,6 +2006,7 @@ loadPropertiesFile() {
     if [ $optDebug = Y ]; then
         echo "User's set Property values..."    
         echo "processingDirectory:                  " $processingDirectory
+        echo "keepDownloadedVideos:                 " $keepDownloadedVideos
         echo "youtubePlaylistReverse:               " $youtubePlaylistReverse
         echo "mirrorVideoThumbnails:                " $mirrorVideoThumbnails
         echo "delayDownloadIfVideoIsLongerThan:     " $delayDownloadIfVideoIsLongerThan
@@ -2038,7 +2045,13 @@ validateProperties() {
         fi
     fi
     
-    # Validate Boolean expressions for Playlist Reverse
+    # Validate Boolean expression for keeping videos
+    if [ "$keepDownloadedVideos" != "Y" ] && [ "$keepDownloadedVideos" != "N" ]; then
+        printError "\"$keepDownloadedVideos\" is an invalid boolean.  Expected Y or N on keepDownloadedVideos"
+        propFailedValidation=Y
+    fi
+    
+    # Validate Boolean expression for Playlist Reverse
     if [ "$youtubePlaylistReverse" != "Y" ] && [ "$youtubePlaylistReverse" != "N" ]; then
         printError "\"$youtubePlaylistReverse\" is an invalid boolean.  Expected Y or N on youtubePlaylistReverse"
         propFailedValidation=Y
@@ -2047,7 +2060,7 @@ validateProperties() {
         [ "$youtubePlaylistReverse" = "Y" ] && youtubePlaylistReverseOpt=Y
     fi
     
-    # Validate Boolean expressions for Mirror Thumbnails
+    # Validate Boolean expression for Mirror Thumbnails
     if [ "$mirrorVideoThumbnails" != "Y" ] && [ "$mirrorVideoThumbnails" != "N" ]; then
         printError "\"$mirrorVideoThumbnails\" is an invalid boolean.  Expected Y or N on mirrorVideoThumbnails"
         propFailedValidation=Y
@@ -2056,7 +2069,7 @@ validateProperties() {
         [ "$mirrorVideoThumbnails" = "Y" ] && mirrorVideoThumbnailsOpt=Y
     fi
 
-    # Validate Boolean expressions for uploading videos as private
+    # Validate Boolean expression for uploading videos as private
     if [ "$uploadVideoAsPrivate" != "Y" ] && [ "$uploadVideoAsPrivate" != "N" ]; then
         printError "\"$uploadVideoAsPrivate\" is an invalid boolean.  Expected Y or N on uploadVideoAsPrivate"
         propFailedValidation=Y
@@ -2152,7 +2165,7 @@ validateProperties() {
             echo ""
             echo "Validation failures found on your .prop file!"
             echo ""
-            promptYesNo "Do you want to review and make changes now?"
+            promptYesNo "Do you want to review and make changes now"
             if ! [ $? -eq $ec_Yes ]; then
                 echo ""
                 echo "Run with the command --edit-prop to make changes later"
@@ -2234,9 +2247,9 @@ grantDailyMotionAccess() {
     
     # Prompt for login
     echo ""
-    read -p "Enter Username for Dailymotion: " dmUsername
+    read -r -p "Enter Username for Dailymotion: " dmUsername
     [ -z "$dmUsername" ] && raiseError "No entry. Canceled Request"
-    read -s -p "Enter Password: " dmPassword
+    read -s -r -p "Enter Password: " dmPassword
     [ -z "$dmPassword" ] && raiseError "No entry. Canceled Request"
     echo ""
     
@@ -2244,9 +2257,9 @@ grantDailyMotionAccess() {
     echo ""
     echo "If you have not yet created your API key go to https://www.dailymotion.com/settings/developer"
     echo ""
-    read -p "Enter API Key: " dmApiKey
+    read -r -p "Enter API Key: " dmApiKey
     [ -z "$dmApiKey" ] && raiseError "No entry. Canceled Request"
-    read -p "Enter API Secret: " dmApiSecret
+    read -r -p "Enter API Secret: " dmApiSecret
     [ -z "$dmApiSecret" ] && raiseError "No entry. Canceled Request"
     
     # Test the login and grant refresh token
@@ -2408,7 +2421,7 @@ dmChangeUsername() {
     echo ""
     
     # Prompt for new name
-    read -p "Change username to: " dmUsername
+    read -r -p "Change username to: " dmUsername
     
     # Exit if not provided
     if [ -z "$dmUsername" ]; then
@@ -2630,8 +2643,10 @@ uploadToDailyMotion() {
     echo "\"$ytVideoId\",\"$dmVideoId\",$videoDuration"",""$videoPart"",\"$videoTitle\"" >> "$uploadTrackingFileCSV"
 
     # Delete local files
-    rm --force "./$videoFilePath"
-    rm --force "./$videoJson"
+    if [ $keepDownloadedVideos != Y ]; then
+        rm --force "./$videoFilePath"
+        rm --force "./$videoJson"
+    fi
     
     # Update previous part with link to this part
     dmServerResponse=$(getVideoInfo $dmVideoId)
@@ -3011,7 +3026,7 @@ createUrlsFile() {
     # Backup existing file
     if [ -f "$urlsFile" ]; then
         echo ".urls file already exists! $urlsFile"
-        promptYesNo "Do you want to skip this step? (saying no will overwrite your .urls file)"
+        promptYesNo "This will overwrite your .urls files.  Would you like to skip this step"
         [ $? -eq $ec_Yes ] && return 0
         echo ""
         echo "creating backup (.bku) copy just encase you change your mind..."
@@ -3054,7 +3069,7 @@ createPropFile() {
     # Backup existing file
     if [ -f "$propertiesFile" ]; then
         echo ".prop file already exists! $propertiesFile"
-        promptYesNo "Do you want to skip this step? (saying no will overwrite your .prop file)"
+        promptYesNo "This will overwrite your .prop file. Would you like to skip this step"
         [ $? -eq $ec_Yes ] && return 0
         echo "creating backup (.bku) copy just encase you change your mind..."
         cp "$propertiesFile" "$propertiesFile.bku"
@@ -3087,7 +3102,7 @@ editPropFile() {
 
 }
 
-propTemplateCurrentVersion=0.2
+propTemplateCurrentVersion=0.3
 blankPropFile() {
     
     # Default Properties
@@ -3110,6 +3125,11 @@ blankPropFile() {
     echo "# (optional) Processing directory (used to backup program files and process the"
     echo "#    downloaded files)"
     echo "processingDirectory=\"$processingDirectory\""
+    echo ""
+    echo ""
+    echo "# (REQUIRED) Keep Downloaded videos? (Y or N)"
+    echo "#    (If Yes, please ensure the the drive your using has adequate storage space!)"
+    echo "keepDownloadedVideos=$keepDownloadedVideos"
     echo ""
     echo ""
     echo "# (REQUIRED) Reverse the Playlist's order when downloading (Y or N)"
@@ -3270,7 +3290,7 @@ updateSourceCode() {
     
     # Are you sure? 
     echo "Current version is $scriptVersionNo"
-    promptYesNo "Are you sure you want update this script?"
+    promptYesNo "Are you sure you want update this script"
     [ $? -eq $ec_Yes ] || exit
     
     # Download latest source code
@@ -3341,7 +3361,7 @@ defaultProcedure() {
             echo "Running this command will start an upload outside of your set schedule"
             echo "Try using the --edit-schedule command if you want to change when this code runs"
             echo ""
-            promptYesNo "Are you sure you want to start uploading outside of your set schedule?"
+            promptYesNo "Are you sure you want to start uploading outside of your set schedule"
             [ $? -eq $ec_Yes ] || exit
 
             # Start the main procedure
