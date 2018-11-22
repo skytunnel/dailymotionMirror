@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.3.6
+scriptVersionNo=0.3.7
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1999,6 +1999,9 @@ loadPropertiesFile() {
     . "$propertiesFile"
     [ $? -eq $ec_Success ] || raiseError "Failure occured while loadind .prop file: $propertiesFile"
     
+    # Check for new template version of the properties file (and update if needed)
+    updatePropFile    
+    
     # Validate the properties
     validateProperties
     
@@ -3090,13 +3093,29 @@ editPropFile() {
     
     # Load and Validate the properties file
     loadPropertiesFile
+
+}
+
+attemptedPropFileUpdate=N
+updatePropFile() {
     
-    # Check for new template version of the properties file
+    # Is the version different?
     if [ "$propTemplateVersion" != "$propTemplateCurrentVersion" ]; then
-        echo "Detected new template for the .prop file!"
+        
+        # Ensure this wasn't previously attempted
+        [ $attemptedPropFileUpdate = Y ] && raiseError "Failed to update to latest prop file template!?"
+        
+        # Print info for user
+        echo "Detected new template for the .prop file on latest version!"
+        echo "Your .prop file version    " $propTemplateVersion
+        echo "Latest .prop file version: " $propTemplateCurrentVersion
         echo "This may include new required preference settings"
-        echo "Running update command (please allow to continue)..."
+        echo "Saving backup (.bku) file before making changes"
         echo ""
+        
+        # Attempt update
+        attemptedPropFileUpdate=Y
+        mv "$propertiesFile" "$propertiesFile.bku" # move to avoid user prompt in non-interactive mode
         createPropFile
     fi
 
