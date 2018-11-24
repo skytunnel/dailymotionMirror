@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.4.5
+scriptVersionNo=0.4.6
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -2811,11 +2811,11 @@ checkServerTimeOffset() {
 revokeDailyMotionAccess() {
 
     # Error if no accesss granted
-    [ -z "$dmRefreshToken" ] || loadPropertiesFile
+    [ -z "$dmRefreshToken" ] && loadPropertiesFile
     [ -z "$dmRefreshToken" ] && raiseError "No access has been granted to any account!"
 
     # Existing access token required
-    [ -z "$dmAccessToken" ] || getDailyMotionAccess
+    [ -z "$dmAccessToken" ] && getDailyMotionAccess
     [ -z "$dmAccessToken" ] && raiseError "Not currently logged in!  Cannot revoke access!"
 
     # Get current user name
@@ -3623,13 +3623,15 @@ updateSourceCode() {
         raiseError "Failed to set executable rights to the script file!?"
     fi
 
-    # Update youtube-dl as well
-    sudo $ytdl --update
-
     # Success
     echo ""
     echo "Successfully updated code to the latest version number $newVersionNumber"
 
+    # Update youtube-dl as well
+    echo ""
+    echo "Checking for updates to the youtube-dl service..."
+    sudo $ytdl --update
+    
 }
 
 testCodeDevONLY() {
