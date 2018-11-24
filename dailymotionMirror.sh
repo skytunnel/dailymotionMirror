@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.4.6
+scriptVersionNo=0.4.7
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1815,7 +1815,7 @@ dmGetAllowance() {
 
         # Print full times for debugging
         if [ $optDebug = Y ]; then
-            echo $(date -d @$uploadTime) $(date +%T -u -d @$uploadDur) "("$uploadDur")"
+            echo $uploadId $(date -d @$uploadTime) $(date +%T -u -d @$uploadDur) "("$uploadDur")" $uploadStatus
         fi
 
         # Convert server time to local time
@@ -2158,10 +2158,11 @@ checkOnPublishingVideos() {
         if ! [ -z "$uploadId" ] && [ "$uploadStatus" != "published" ]; then
             waitForPublish $uploadId $checkTill
 
-            # Update with timestamp from dailymotion
+            # Update with timestamp/duration from dailymotion
             if [ $dmStatus = "published" ]; then
                 dmCreatedTime=$(queryJson "created_time" "$dmServerResponse") || exit 1
-                uploadLine="$dmCreatedTime $uploadDur $uploadId $dmStatus"
+                dmDuration=$(queryJson "duration" "$dmServerResponse") || exit 1
+                uploadLine="$dmCreatedTime $dmDuration $uploadId $dmStatus"
             else
                 # Mark up latest check time
                 echo ":::: Will check up on this video again later"
@@ -2200,7 +2201,7 @@ waitForPublish() {
     publishWaitTill=$2
 
     # Check id is valid
-    videoFields="status,title,encoding_progress,publishing_progress,explicit"
+    videoFields="created_time,status,title,encoding_progress,publishing_progress,explicit,duration"
     dmServerResponse=$(dmGetFieldValue video/$dmVideoId "$videoFields")
     dmIdCheck=$(queryJson "id" "$dmServerResponse") || exit 1
     if [ "dmIdCheck" = "null" ]; then
@@ -2587,7 +2588,7 @@ echoUploadsToday() {
 
     # Query limits based on max video duration
     echo ""
-    echo "comparing with local tracking file..."
+    echo "Comparing with local tracking file..."
     optDebug=Y
     videoDuration=$dmMaxVideoDuration
     dmGetAllowance --do-not-print
@@ -2768,7 +2769,7 @@ checkServerTimeOffset() {
     until [ $(date +%s) -gt $queryTimeout ]; do
         dmServerResponse=$(dmGetFieldValue playlist/$dmPlaylistID created_time)
         dmQueryError=$(queryJson "error" "$dmServerResponse") || exit 1
-        [ "$dmDeleteError" = "null" ] && break
+        [ "$dmQueryError" = "null" ] && break
         sleep 3
     done
 
@@ -2824,6 +2825,10 @@ revokeDailyMotionAccess() {
     [ "$dmUsername" = "null" ] \
         && raiseError "Unable to get details of the user?  Server Response:"\
         $'\n'"$(jq "." <<< "$dmServerResponse")"
+
+    # Are you sure?
+    promptYesNo "Are you sure you want to logout of $dmUsername"
+    [ $? -eq $ec_Yes ] || exit
 
     # Logout
     dmServerResponse=$(curl --silent \
@@ -2904,6 +2909,10 @@ grantDailyMotionAccess() {
     echo "dmApiKey=\"$dmApiKey\"" >> "$propertiesFile"
     echo "dmApiSecret=\"$dmApiSecret\"" >> "$propertiesFile"
     echo "dmRefreshToken=\"$dmRefreshToken\"" >> "$propertiesFile"
+    
+    # Mark up sucessful
+    echo "Sucessfully logged in"
+    echo ""
 
 }
 
@@ -3631,7 +3640,7 @@ updateSourceCode() {
     echo ""
     echo "Checking for updates to the youtube-dl service..."
     sudo $ytdl --update
-    
+
 }
 
 testCodeDevONLY() {
