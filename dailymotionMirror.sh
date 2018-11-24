@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.4.4
+scriptVersionNo=0.4.5
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -33,7 +33,7 @@ setConstants() {
     scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
     scriptFile=$(basename "$0")
     scriptName=${scriptFile%.*}
-    
+
     # Files and directories
     selfSourceCode="https://raw.githubusercontent.com/skytunnel/dailymotionMirror/master/dailymotionMirror.sh"
     ytdlSource="https://yt-dl.org/downloads/latest/youtube-dl"
@@ -106,10 +106,10 @@ initialization() {
 
     # Read program's given input arguments
     inputArguments
-    
+
     # Start up checks to ensure setup complete and dependencies installed
     [ $optSkipStartupChecks = Y ] || startupChecks
-    
+
     # Choose which procedure to run
     procedureSelection
 
@@ -480,7 +480,7 @@ inputArguments() {
         --change-username)
             setRunProcedure $co_ChangeDailyMotionUsername
             ;;
-        --change-screename)
+        --change-screenname)
             setRunProcedure $co_ChangeDailyMotionScreenname
             ;;
         --upload-avatar=*)
@@ -638,7 +638,6 @@ procedureSelection() {
         # Disable access to this api key
         $co_dailymotionLoginRevoke)
             rootRequired
-            initializeDailyMotion
             revokeDailyMotionAccess
             stopCronSchedule
             ;;
@@ -669,7 +668,7 @@ procedureSelection() {
         $co_uploadCoverImage)
             uploadChannelArt "cover" "$optUploadBannerImage"
             ;;
-        
+
         # Open the published csv file
         $co_openPublishedFile)
             column -s, -t "$uploadTrackingFileCSV" \
@@ -679,7 +678,7 @@ procedureSelection() {
                 --quit-on-intr \
                 || echo ""
             ;;
-        
+
         # Watch the log file of an existing instance
         $co_watchExistingInstance)
             watchExistingInstance
@@ -775,7 +774,7 @@ helpMenu() {
     echo "$(wrapHelpColumn "      --revoke-access     " "Revoke all access to the given dailymotion access (if you want to stop using this).  Requires root")"
     echo "$(wrapHelpColumn "      --grant-access      " "Trigger prompt for dailymotion login details.  WARNING this will remove any existing saved login")"
     echo "$(wrapHelpColumn "      --change-username   " "Provides access to change your dailymotion username account for the channel url (may not work on all accounts)")"
-    echo "$(wrapHelpColumn "      --change-screename  " "Provides access to change your dailymotion screename that is displayed on your home page")"
+    echo "$(wrapHelpColumn "      --change-screenname " "Provides access to change your dailymotion screenname that is displayed on your home page")"
     echo "$(wrapHelpColumn "      --upload-avatar=IMG " "Set the IMG to a image file location that you want uploaded as the accounts Profile Avatar")"
     echo "$(wrapHelpColumn "      --upload-banner=IMG " "Set the IMG to a image file location that you want uploaded as the accounts Cover Banner")"
     echo ""
@@ -922,7 +921,7 @@ main() {
     # Record script Version
     echo "$scriptDir/$scriptFile - version: $scriptVersionNo"
     echo ""
-    
+
     # Record start time
     mainStartTime=$(date +%s)
     echo "Start date time:                      " $(date +"%F %T")
@@ -2369,7 +2368,7 @@ dmChangeUserField() {
 
     # Confirm current field name
     echo ""
-    echo "Current $changeFieldName:   " $currentFieldValue
+    echo "Current $changeFieldName:  " $currentFieldValue
 
     # Prompt for new value
     read -e -r -p "Change $changeFieldName to: " -i "$currentFieldValue" newFieldValue
@@ -2764,8 +2763,16 @@ checkServerTimeOffset() {
             $'\n'"$(jq "." <<< "$dmServerResponse")"
     fi
 
-    # Get created time of playlist
-    dmServerResponse=$(dmGetFieldValue playlist/$dmPlaylistID created_time)
+    # Get created time of playlist (done on loop as it did once fail to read)
+    queryTimeout=$(date +%s -d "+ 60 seconds")
+    until [ $(date +%s) -gt $queryTimeout ]; do
+        dmServerResponse=$(dmGetFieldValue playlist/$dmPlaylistID created_time)
+        dmQueryError=$(queryJson "error" "$dmServerResponse") || exit 1
+        [ "$dmDeleteError" = "null" ] && break
+        sleep 3
+    done
+
+    # Query the time from the response
     dmTime=$(queryJson "created_time" "$dmServerResponse") || exit 1
     if [ "$dmTime" = "null" ]; then
         raiseError "Failed to read playlist id $dmPlaylistID ?"\
@@ -2804,13 +2811,19 @@ checkServerTimeOffset() {
 revokeDailyMotionAccess() {
 
     # Error if no accesss granted
+    [ -z "$dmRefreshToken" ] || loadPropertiesFile
     [ -z "$dmRefreshToken" ] && raiseError "No access has been granted to any account!"
 
-    # Login to existing token and revoke
-    [ -z "$dmAccessToken" ] || getDailyMotionAccess
-
     # Existing access token required
+    [ -z "$dmAccessToken" ] || getDailyMotionAccess
     [ -z "$dmAccessToken" ] && raiseError "Not currently logged in!  Cannot revoke access!"
+
+    # Get current user name
+    dmServerResponse=$(dmGetFieldValue me username)
+    dmUsername=$(queryJson "username" "$dmServerResponse") || exit 1
+    [ "$dmUsername" = "null" ] \
+        && raiseError "Unable to get details of the user?  Server Response:"\
+        $'\n'"$(jq "." <<< "$dmServerResponse")"
 
     # Logout
     dmServerResponse=$(curl --silent \
