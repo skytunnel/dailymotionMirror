@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.4.3
+scriptVersionNo=0.4.4
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -10,27 +10,11 @@ errorHandler() {
 }
 trap 'errorHandler $LINENO' ERR
 
-initialization() {
+setConstants() {
 
     # Standard Exit Codes Enum
     ec_Success=0
     ec_Error=1
-
-    # Get the source of the current script
-    #calledBy="$(ps -o comm= $PPID)"
-    scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-    scriptFile=$(basename "$0")
-    scriptName=${scriptFile%.*}
-
-    # Get/Set Program Constants
-    setConstants
-
-    # Read program's given input arguments
-    inputArguments
-
-}
-
-setConstants() {
 
     # Custom Exit Codes Enum
     ec_ContinueNext=3
@@ -44,6 +28,12 @@ setConstants() {
     wr_durationLimit=2
     wr_dailyLimit=3
 
+    # Get the source of the current script
+    #calledBy="$(ps -o comm= $PPID)"
+    scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+    scriptFile=$(basename "$0")
+    scriptName=${scriptFile%.*}
+    
     # Files and directories
     selfSourceCode="https://raw.githubusercontent.com/skytunnel/dailymotionMirror/master/dailymotionMirror.sh"
     ytdlSource="https://yt-dl.org/downloads/latest/youtube-dl"
@@ -63,6 +53,9 @@ setConstants() {
     logFile=$scriptDir/$scriptName.log
     logArchive=$(date +"%Y%m%d_%H%M%S").log
     outputDir=$scriptDir/$scriptName/ # Defaults to this when not set on prop file
+    backupDir="backup"
+    keepLogsDir="logs"
+    keepVideosDir="done"
 
     # DailyMotion's automated upload limits...
     # https://developer.dailymotion.com/api#guidelines
@@ -103,6 +96,191 @@ setConstants() {
     waitTimeBeforeDownloading=$(timeInSeconds "$waitTimeBeforeDownloadingSTR")
     waitTimeBeforeUploading=$(timeInSeconds "$waitTimeBeforeUploadingSTR")
     quitWhenUploadWindowIsWithin=$(timeInSeconds "$quitWhenUploadWindowIsWithinSTR")
+
+}
+
+initialization() {
+
+    # Get/Set Program Constants
+    setConstants
+
+    # Read program's given input arguments
+    inputArguments
+    
+    # Start up checks to ensure setup complete and dependencies installed
+    [ $optSkipStartupChecks = Y ] || startupChecks
+    
+    # Choose which procedure to run
+    procedureSelection
+
+}
+
+# function to print an error
+function printError() {
+    errMsg="$@"
+    if [ -z "$errMsg" ]; then
+        errMsg="Unspecified Error!"
+    else
+        errMsg="ERROR: $errMsg"
+    fi
+    echo "$errMsg" 1>&2
+}
+
+# function to log error and exit
+function raiseError() {
+    printError "$@"
+    exitRoutine
+}
+
+# function to test for numeric value
+function isNumeric() {
+    case $1 in
+        ''|*[!0-9]*) echo N ;;
+        *)           echo Y ;;
+    esac
+}
+
+# function to test for date value
+function isDate() {
+    testVal="$@"
+    if [ -z "$testVal" ]; then
+        echo N
+    else
+        date -d "+$testVal" > /dev/null
+        if [ $? -ne $ec_Success ]; then
+            echo N
+        else
+            echo Y
+        fi
+    fi
+}
+
+# Function convert a time string to number of seconds
+function timeInSeconds() {
+    echo $(date +%s -u -d "$(date +%F -d @0) +$@")
+}
+
+# function to prompt user for yes/no response
+function promptYesNo() {
+    echo ""
+    returnResponse=$ec_Error
+    read -s -r -p "$@ (Y/N)?" -n 1 userResponse
+    while true; do
+        case $userResponse in
+            Y|y)
+                returnResponse=$ec_Yes
+                break
+                ;;
+            N|n)
+                returnResponse=$ec_No
+                break
+                ;;
+        esac
+        read -s -r -n 1 userResponse
+    done
+    echo "" #link break
+    return $returnResponse
+}
+
+# function to manage query of json file
+function queryJson() {
+    jsElementName="$1"
+    jsonInput="$2"
+
+    # required parameters
+    if [ -z "$jsElementName" ]; then
+        printError "Arg 1 requires json element route name"
+        exit 1
+    fi
+    if [ -z "$jsonInput" ]; then
+        printError "Arg 2 requires json file or string for $jsElementName query"
+        exit 1
+    fi
+
+    # prefix dot
+    [ ${jsElementName:0:1} = "." ] || jsElementName=.$jsElementName
+
+    # file or string?
+    if [ -f "$jsonInput" ]; then
+        # Ensure file is not empty
+        if ! [ -s "$jsonInput" ]; then
+            printError "json file is empty! Cannot Query: $jsonInput"
+            exit 1
+        fi
+
+        # Query result
+        jq --raw-output \
+            --compact-output \
+            "$jsElementName" \
+            "$jsonInput"
+    else
+        # Ensure string is not blank
+        if [ -z "${jsonInput// }" ]; then
+            printError "json string is empty! Cannot Query!"
+            exit 1
+        fi
+
+        # Query result
+        jq --raw-output \
+            --compact-output \
+            "$jsElementName" \
+            <<< "$jsonInput"
+    fi
+}
+
+rootRequired() {
+
+    # Procedure to exit with error when root access is required
+    #if [ "$EUID" -ne 0 ]; then
+    if ! [ $(sudo echo 0 ) ]; then
+        raiseError "Root access is required to run this command"
+    fi
+
+}
+
+startupChecks() {
+
+    # Default return
+    startupConfirmed=Y
+
+    # Ensure required packages exist
+    if [ -z $(command -v curl) ]; then
+        startupConfirmed=N
+        printError "curl command not found!  Please install"
+    fi
+    if [ -z $(command -v jq) ]; then
+        startupConfirmed=N
+        printError "jq command not found!  Please install"
+    fi
+    if [ -z $(command -v avconv) ] && [ -z $(command -v ffmpeg) ]; then
+        startupConfirmed=N
+        printError "ffmpeg or avconv commands not found!  Please install"
+    fi
+    if ! [ -f $ytdl ]; then
+        startupConfirmed=N
+        printError "youtube-dl command not found!  Please install"
+    fi
+    if [ -z $(command -v crontab) ]; then
+        startupConfirmed=N
+        printError "crontab command not found!  Please install"
+    else
+        # Check if cron schedule setup
+        if ! [ -f "$cronJobFile" ]; then
+            startupConfirmed=N
+            printError "No cron schedule detected!  Use the --edit-schedule command to setup"
+        fi
+    fi
+
+    # Trigger First-Time-Setup if anything is missing
+    if [ $startupConfirmed != Y ]; then
+        echo ""
+        firstTimeSetup
+        exit
+    fi
+
+    # Markup if using ffmpeg
+    useFFMPEG=N
+    [ $startupConfirmed = Y ] && [ -z $(command -v ffmpeg) ] || useFFMPEG=Y
 
 }
 
@@ -180,55 +358,9 @@ installDependencies() {
 
 }
 
-startupChecks() {
-
-    # Default return
-    startupConfirmed=Y
-
-    # Ensure required packages exist
-    if [ -z $(command -v curl) ]; then
-        startupConfirmed=N
-        printError "curl command not found!  Please install"
-    fi
-    if [ -z $(command -v jq) ]; then
-        startupConfirmed=N
-        printError "jq command not found!  Please install"
-    fi
-    if [ -z $(command -v avconv) ] && [ -z $(command -v ffmpeg) ]; then
-        startupConfirmed=N
-        printError "ffmpeg or avconv commands not found!  Please install"
-    fi
-    if ! [ -f $ytdl ]; then
-        startupConfirmed=N
-        printError "youtube-dl command not found!  Please install"
-    fi
-    if [ -z $(command -v crontab) ]; then
-        startupConfirmed=N
-        printError "crontab command not found!  Please install"
-    else
-        # Check if cron schedule setup
-        if ! [ -f "$cronJobFile" ]; then
-            startupConfirmed=N
-            printError "No cron schedule detected!  Use the --edit-schedule command to setup"
-        fi
-    fi
-
-    # Trigger First-Time-Setup if anything is missing
-    if [ $startupConfirmed != Y ]; then
-        echo ""
-        dailyMotionFirstTimeSetup
-        exit
-    fi
-
-    # Markup if using ffmpeg
-    useFFMPEG=N
-    [ $startupConfirmed = Y ] && [ -z $(command -v ffmpeg) ] || useFFMPEG=Y
-
-}
-
 setRunProcedure() {
 
-    # Error Check when called more than once
+    # Error when called more than once
     if [ $optRunProcedure -gt 0 ]; then
         raiseError "Multiple procedures requested!  Please select only one.  See --help for more details"
     fi
@@ -420,6 +552,190 @@ inputArguments() {
     fi
 }
 
+defaultProcedure() {
+
+    # Standard run when not in interactive mode
+    if ! [ -t 0 ]; then
+        main > "$logFile" 2>&1
+    else
+        # Has user specified they want to do an upload?
+        echo ""
+        if [ $optUserRunUpload = Y ]; then
+
+            # Double check they want to run outside of schedule
+            echo "Running this command will start an upload outside of your set schedule"
+            echo "Try using the --edit-schedule command if you want to change when this code runs"
+            echo ""
+            promptYesNo "Are you sure you want to start uploading outside of your set schedule"
+            [ $? -eq $ec_Yes ] || exit
+
+            # Start the main procedure
+            main
+
+        else
+
+            # Has the first schedule run yet? (based on existance of log file)
+            if [ -f "$logFile" ]; then
+                watchExistingInstance
+            else
+
+                # Validate everything is setup
+                echo "Validating your setup..."
+                validateSetup
+
+                # Tell the user everything has been setup
+                echo ""
+                if [ $setupValidated = Y ]; then
+                    echo "Everything has now been setup!"
+                    echo "Please wait for the first scheduled run to kick in before looking for results"
+                    echo "You can review/change your scheduled time by using the command --edit-schedule"
+                    echo ""
+                    echo "Try using the --help command if you are looking for other options"
+                else
+                    raiseError "Validation failed!"
+                fi
+            fi
+            exit
+        fi
+    fi
+
+}
+
+procedureSelection() {
+
+    case $optRunProcedure in
+
+        # Standard routine
+        $co_mainProcedure)
+            defaultProcedure
+            ;;
+
+        # Edit the urls File
+        $co_editUrlsFile)
+            editUrlsFile
+            ;;
+
+        # Edit the Properties File
+        $co_editPropFile)
+            editPropFile
+            ;;
+
+        # Edit the Cron job File
+        $co_editCronFile)
+            editCronFile
+            ;;
+
+        # Stop the Cron Scheduled Job
+        $co_stopCronSchedule)
+            stopCronSchedule
+            ;;
+
+        # First Time setup procedure
+        $co_firstTimeSetup)
+            firstTimeSetup
+            ;;
+
+        # Disable access to this api key
+        $co_dailymotionLoginRevoke)
+            rootRequired
+            initializeDailyMotion
+            revokeDailyMotionAccess
+            stopCronSchedule
+            ;;
+
+        # Reprompt dailymotion login
+        $co_dailymotionLoginNew)
+            dailyMotionReLogin
+            ;;
+
+        # Change the username on dailymotion
+        $co_ChangeDailyMotionUsername)
+            initializeDailyMotion
+            dmChangeUserField "username"
+            ;;
+
+        # Change the screenname on dailymotion
+        $co_ChangeDailyMotionScreenname)
+            initializeDailyMotion
+            dmChangeUserField "screenname"
+            ;;
+
+        # Upload image to channel avatar
+        $co_uploadAvatarImage)
+            uploadChannelArt "avatar" "$optUploadAvatarImage"
+            ;;
+
+        # Upload image to channel cover art
+        $co_uploadCoverImage)
+            uploadChannelArt "cover" "$optUploadBannerImage"
+            ;;
+        
+        # Open the published csv file
+        $co_openPublishedFile)
+            column -s, -t "$uploadTrackingFileCSV" \
+                | less --shift=2 \
+                --LINE-NUMBERS \
+                --chop-long-lines \
+                --quit-on-intr \
+                || echo ""
+            ;;
+        
+        # Watch the log file of an existing instance
+        $co_watchExistingInstance)
+            watchExistingInstance
+            ;;
+
+        # Kill an existing running instance
+        $co_killExistingInstance)
+            killExistingInstance
+            ;;
+
+        # Self updating code
+        $co_updateSourceCode)
+            updateSourceCode
+            ;;
+
+        # Query dailymotion to see what was done today
+        $co_showUploadsToday)
+            initializeDailyMotion
+            echoUploadsToday
+            ;;
+
+        # Dump the results of the dailymotin query (above) to the local tracking file
+        $co_syncUploadsToday)
+            initializeDailyMotion
+            rebuildAllowanceFile
+            ;;
+
+        # Update the archive give to indicate which videos are already downloaded
+        $co_markAsDownloaded)
+            markAsDownloaded
+            ;;
+
+        # Sync an already uploaded video with the details on youtube
+        $co_syncVideoDetails)
+            syncVideoDetails
+            ;;
+
+        # Check the time difference between local machine and dailymotion's servers
+        $co_checkServerTimeOffset)
+            initializeDailyMotion
+            checkServerTimeOffset
+            ;;
+
+        # Run code in the test procedure (DEV ONLY)
+        $co_devTestCode)
+            testCodeDevONLY
+            ;;
+
+        # Unknown enum setting
+        *)
+            raiseError "Unknown enum run procedure number $optRunProcedure"
+            ;;
+
+    esac
+}
+
 helpMenu() {
 
     # Prepare wrap settings (done here for speed improvement)
@@ -597,138 +913,18 @@ watchExistingInstance() {
 
 }
 
-rootRequired() {
-
-    # Procedure to exit with error when root access is required
-    #if [ "$EUID" -ne 0 ]; then
-    if ! [ $(sudo echo 0 ) ]; then
-        raiseError "Root access is required to run this command"
-    fi
-
-}
-
-# function to print an error
-function printError() {
-    errMsg="$@"
-    if [ -z "$errMsg" ]; then
-        errMsg="Unspecified Error!"
-    else
-        errMsg="ERROR: $errMsg"
-    fi
-    echo "$errMsg" 1>&2
-}
-
-# function to log error and exit
-function raiseError() {
-    printError "$@"
-    exitRoutine
-}
-
-# function to test for numeric value
-function isNumeric() {
-    case $1 in
-        ''|*[!0-9]*) echo N ;;
-        *)           echo Y ;;
-    esac
-}
-
-# function to test for date value
-function isDate() {
-    testVal="$@"
-    if [ -z "$testVal" ]; then
-        echo N
-    else
-        date -d "+$testVal" > /dev/null
-        if [ $? -ne $ec_Success ]; then
-            echo N
-        else
-            echo Y
-        fi
-    fi
-}
-
-# Function convert a time string to number of seconds
-function timeInSeconds() {
-    echo $(date +%s -u -d "$(date +%F -d @0) +$@")
-}
-
-# function to prompt user for yes/no response
-function promptYesNo() {
-    echo ""
-    returnResponse=$ec_Error
-    read -s -r -p "$@ (Y/N)?" -n 1 userResponse
-    while true; do
-        case $userResponse in
-            Y|y)
-                returnResponse=$ec_Yes
-                break
-                ;;
-            N|n)
-                returnResponse=$ec_No
-                break
-                ;;
-        esac
-        read -s -r -n 1 userResponse
-    done
-    echo "" #link break
-    return $returnResponse
-}
-
-# function to manage query of json file
-function queryJson() {
-    jsElementName="$1"
-    jsonInput="$2"
-
-    # required parameters
-    if [ -z "$jsElementName" ]; then
-        printError "Arg 1 requires json element route name"
-        exit 1
-    fi
-    if [ -z "$jsonInput" ]; then
-        printError "Arg 2 requires json file or string for $jsElementName query"
-        exit 1
-    fi
-
-    # prefix dot
-    [ ${jsElementName:0:1} = "." ] || jsElementName=.$jsElementName
-
-    # file or string?
-    if [ -f "$jsonInput" ]; then
-        # Ensure file is not empty
-        if ! [ -s "$jsonInput" ]; then
-            printError "json file is empty! Cannot Query: $jsonInput"
-            exit 1
-        fi
-
-        # Query result
-        jq --raw-output \
-            --compact-output \
-            "$jsElementName" \
-            "$jsonInput"
-    else
-        # Ensure string is not blank
-        if [ -z "${jsonInput// }" ]; then
-            printError "json string is empty! Cannot Query!"
-            exit 1
-        fi
-
-        # Query result
-        jq --raw-output \
-            --compact-output \
-            "$jsElementName" \
-            <<< "$jsonInput"
-    fi
-}
-
 main() {
 
     # Check if existing process running this script
     [ $optAllowMultiInstances = Y ] || exitOnExistingInstance
     mainProcedureActivated=Y
 
+    # Record script Version
+    echo "$scriptDir/$scriptFile - version: $scriptVersionNo"
+    echo ""
+    
     # Record start time
     mainStartTime=$(date +%s)
-    echo "$scriptDir/$scriptFile - version: $scriptVersionNo"
     echo "Start date time:                      " $(date +"%F %T")
 
     # Check required files exist
@@ -821,7 +1017,7 @@ exitRoutine() {
 
     # Backup important files
     if [ -d "$processingDirectoryFull" ]; then
-        bkuDir="$processingDirectoryFull"/backup/
+        bkuDir="$processingDirectoryFull"/$backupDir/
         [ -d "$bkuDir" ] || mkdir "$bkuDir"
         cp --force "$uploadTrackingFile" "$bkuDir"
         cp --force "$uploadTrackingFileCSV" "$bkuDir"
@@ -836,7 +1032,7 @@ exitRoutine() {
 
     # Archive the log
     if ! [ -t 0 ] && [ $optKeepLogFile = Y ] && [ -d "$outputDir" ]; then
-        logArchiveDir="$outputDir"/logs
+        logArchiveDir="$outputDir"/$keepLogsDir/
         [ -d "$logArchiveDir" ] || mkdir "$logArchiveDir"
         cp "$logFile" "$logArchiveDir/$logArchive"
     fi
@@ -1231,6 +1427,36 @@ downloadVideo() {
 
 }
 
+markAsDownloaded() {
+
+    # Backup existing archive file
+    [ -f "$archiveFile" ] && cp "$archiveFile" "$archiveFile.bku"
+
+    # Requested command?
+    case "$optMarkDoneID" in
+        "ALL")
+            echo "Marking all videos in .url file as downloaded..."
+            getFullListOfVideos > "$archiveFile"
+            ;;
+        "SYNC")
+            echo "Syncing with uploads .json file"
+            jq --raw-output \
+                '"youtube " + .youtubeId' \
+                "$uploadTrackingFile" \
+                > "$archiveFile"
+            ;;
+        *)
+            echo "validating id/url"...
+            confirmVideoId=$($ytdl --get-id -- $optMarkDoneID)
+            [ $? -ne $ec_Success ] && raiseError "Invalid ID/URL! $optMarkDoneID"
+            [ -z "$confirmVideoId" ] && raiseError "Invalid ID/URL! $optMarkDoneID"
+            echo "youtube $confirmVideoId" >> "$archiveFile"
+            ;;
+    esac
+    echo "done"
+
+}
+
 splitVideoRoutine() {
 
     # Ensure file exists
@@ -1350,9 +1576,15 @@ splitVideoRoutine() {
         mv $tmpSplitDir/* "$outputDir"
         rm --recursive $tmpSplitDir
 
-        # Delete orginal copy
-        rm --force "./$videoFilePath"
-        rm --force "./$videoJson"
+        # Delete/Keep orginal copy
+        if [ $keepDownloadedVideos = Y ]; then
+            [ -d "./$keepVideosDir" ] || mkdir "./$keepVideosDir"
+            mv "./$videoFilePath" "./$keepVideosDir/$videoFilePath"
+            mv "./$videoJson" "./$keepVideosDir/$videoJson"
+        else
+            rm --force "./$videoFilePath"
+            rm --force "./$videoJson"
+        fi
 
         # Run procedure to process existing jsons
         uploadsBefore=$totalVideosUploaded
@@ -1748,6 +1980,157 @@ waitForUploadAllowance() {
 
 }
 
+waitReasonDescription() {
+
+    # Convert the wait reason enum to a description
+    case $1 in
+        $wr_minimumTime)    echo "the minimum wait time between uploads";;
+        $wr_hourlyLimit)    echo "the hourly upload limit reached!";;
+        $wr_durationLimit)  echo "the remaining duration allowance less than needed!";;
+        $wr_dailyLimit)     echo "the max daily videos limit reached!";;
+        *)                  echo "an unspecified wait limit!?";;
+    esac
+
+}
+
+uploadToDailyMotion() {
+
+    # Requires Title
+    [ -z "$videoTitle" ] && raiseError "Video Title required!"
+
+    # Wait 30 minutes before the required time before uploading
+    waitForUploadAllowance $waitTimeBeforeUploading
+
+    # Renew Access Token
+    if [ $(date +%s) -gt $dmAccessRenewTime ]; then
+        echo "Renewing Daily Motion Access Token..."
+        getDailyMotionAccess
+    fi
+
+    # Upload the Video
+    echo $(date)" - uploading video..."
+    dmUploadFile "$videoFilePath" || exit 1
+    if [ -z "$dmPostedUrl" ]; then
+        raiseError "No Response from upload url!?"
+    fi
+
+    # Wait full required time for required allowance to be available
+    waitForUploadAllowance
+
+    # Post the video to channel
+    echo $(date)" - post video to channel..."
+    dmServerResponse=$(curl --silent --request POST \
+        --header "Authorization: Bearer ${dmAccessToken}" \
+        --data "url=$dmPostedUrl" \
+        https://api.dailymotion.com/me/videos
+    )
+
+    # Check for failure to post video
+    dmVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
+    if [ "$dmVideoId" = "null" ]; then
+
+        # Print full details of the error
+        echo "Failed post the video to the account!"
+        echo "Response from server:"
+        echo "$(jq "." <<< "$dmServerResponse")"
+
+        # Suspend account for 24hours if limits exceeded
+        # https://faq.dailymotion.com/hc/en-us/articles/115009030568-Upload-policies
+        dmErrorReason=$(queryJson "error.error_data.reason" "$dmServerResponse") || exit 1
+        if [ "$dmErrorReason" = "upload_limit_exceeded" ]; then
+            echo "Upload limit exceeded!"
+            echo "Upload privileges suspended till "$(date -d "+$dmDurationAllowanceExpiry seconds")
+            echo "For more info check: https://www.dailymotion.com/upload"
+
+            # Show whats being uploaded in past day...
+            echo ""
+            echo "Running --show-dm-uploads command for your review..."
+            echoUploadsToday
+
+            # Markup that account is locked out for 24-hours
+            dmTrackAllowance $dmDurationAllowance
+
+        else
+            # Track the duration just encase
+            dmTrackAllowance $videoDuration
+        fi
+
+        # Exit the program
+        exitRoutine
+    fi
+
+    # Initially track against current time (but will be updated later to the published time)
+    dmServerResponse=$(dmGetFieldValue video/$dmVideoId duration)
+    dmDuration=$(queryJson "duration" "$dmServerResponse") || exit 1
+    dmTrackAllowance $dmDuration $dmVideoId "waiting"
+
+    # Publish the video
+    echo $(date)" - publishing video..."
+    dmServerResponse=$(publishVideo)
+    dmPublishedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
+    if [ "$dmPublishedVideoId" = "null" ]; then
+        # Print the error for review
+        raiseError "Failed publish the video ID $dmVideoId !"\
+            $'\n'"Response from server:"\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Update upload statistics
+    ((totalVideosUploaded++))
+    ((totalDurationUploaded+=videoDuration))
+
+    # Record upload to json file
+    jq -n -c \
+        --arg ut "$ytVideoId" \
+        --arg dm "$dmVideoId" \
+        --arg du $videoDuration \
+        --arg pt "$videoPart" \
+        --arg vt "$videoTitle" \
+        '{youtubeId: $ut, dailyMotionId: $dm, duration: $du, part: $pt, title: $vt}' \
+        >> "$uploadTrackingFile"
+
+    # Record upload to csv file
+    if ! [ -f "$uploadTrackingFileCSV" ]; then
+        echo "YouTube_ID,Dailymotion_ID,Duration,Part_No,Title" > "$uploadTrackingFileCSV"
+    fi
+    echo "${ytVideoId},${dmVideoId},${videoDuration},${videoPart},\"${videoTitle}\"" >> "$uploadTrackingFileCSV"
+
+    # Delete/Keep local files
+    if [ $keepDownloadedVideos = Y ] && [ $(isNumeric $videoPart) = N ]; then
+        [ -d "./$keepVideosDir" ] || mkdir "./$keepVideosDir"
+        mv "./$videoFilePath" "./$keepVideosDir/$videoFilePath"
+        mv "./$videoJson" "./$keepVideosDir/$videoJson"
+    else
+        rm --force "./$videoFilePath"
+        rm --force "./$videoJson"
+    fi
+
+    # Update previous part with link to this part
+    dmServerResponse=$(dmGetFieldValue video/$dmVideoId url)
+    dmVideoUrl=$(queryJson "url" "$dmServerResponse") || exit 1
+    addLinkToPrevVideoPart
+
+}
+
+publishVideo() {
+
+    # Publish the video (and return json)
+    curl --silent --request POST \
+        --header "Authorization: Bearer ${dmAccessToken}" \
+        --data "published=true" \
+        --data "channel=$uploadVideoInCategory" \
+        --data-urlencode "title=$videoTitle" \
+        ${dmVideoDescr:+ --data-urlencode "description=$dmVideoDescr"} \
+        ${youtubeVideoTags:+ --data-urlencode "tags=$youtubeVideoTags"} \
+        ${uploadVideoWithNextVideoIdPlayback:+ --data-urlencode "player_next_video=$uploadVideoWithNextVideoIdPlayback"} \
+        ${uploadVideoWithPassword:+ --data-urlencode "password=$uploadVideoWithPassword"} \
+        ${mirrorVideoThumbnailsOpt:+ --data "thumbnail_url=$videoThumbnail"} \
+        ${uploadVideoAsPrivateOpt:+ --data "private=true"} \
+        ${uploadVideoAsCountryCode:+ --data "country=$uploadVideoAsCountryCode"} \
+        https://api.dailymotion.com/video/$dmVideoId
+
+}
+
 checkOnPublishingVideos() {
 
     # Info
@@ -1811,26 +2194,740 @@ checkOnPublishingVideos() {
 
 }
 
-waitReasonDescription() {
+waitForPublish() {
 
-    # Convert the wait reason enum to a description
-    case $1 in
-        $wr_minimumTime)    echo "the minimum wait time between uploads";;
-        $wr_hourlyLimit)    echo "the hourly upload limit reached!";;
-        $wr_durationLimit)  echo "the remaining duration allowance less than needed!";;
-        $wr_dailyLimit)     echo "the max daily videos limit reached!";;
-        *)                  echo "an unspecified wait limit!?";;
-    esac
+    # Inputs
+    dmVideoId=$1
+    publishWaitTill=$2
+
+    # Check id is valid
+    videoFields="status,title,encoding_progress,publishing_progress,explicit"
+    dmServerResponse=$(dmGetFieldValue video/$dmVideoId "$videoFields")
+    dmIdCheck=$(queryJson "id" "$dmServerResponse") || exit 1
+    if [ "dmIdCheck" = "null" ]; then
+        raiseError "Invalid video ID $dmVideoId !"\
+            $'\n'"Response from server:"\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Wait for video to finish encoding/publishing
+    until [ $(date +%s) -gt $publishWaitTill ]; do
+
+        # Query video info
+        dmServerResponse=$(dmGetFieldValue video/$dmVideoId "$videoFields")
+        dmStatus=$(queryJson "status" "$dmServerResponse") || exit 1
+
+        # Quit loop on unexpected status (or published)
+        [ $dmStatus != "waiting" ] && \
+        [ $dmStatus != "processing" ] && \
+        [ $dmStatus != "ready" ] && break
+
+        sleep 30
+    done
+
+    # Double-check video is published
+    dmVideoTitle=$(queryJson "title" "$dmServerResponse") || exit 1
+    if [ $dmStatus != "published" ]; then
+        dmEncodingPC=$(queryJson "encoding_progress" "$dmServerResponse") || exit 1
+        dmPublishingPC=$(queryJson "publishing_progress" "$dmServerResponse") || exit 1
+        echo ":::: $(date) - Video ID $dmVideoId is still not published! - $dmVideoTitle"
+        echo "          Status:              " $dmStatus
+        echo "          Encoding Progress:   " $dmEncodingPC"%"
+        echo "          Publishing Progress: " $dmPublishingPC"%"
+    else
+        echo ":::: $(date) - Successfully published $dmVideoTitle"
+    fi
+
+    # Warn if video was flagged as Explicit
+    dmExplicit=$(queryJson "explicit" "$dmServerResponse") || exit 1
+    if [ "$dmExplicit" = "true" ]; then
+        echo ":::: WARNING: Video ID $dmVideoId was flagged as Explicit! - $dmVideoTitle"
+    fi
 
 }
 
-dailyMotionFirstTimeSetup() {
+addLinkToPrevVideoPart() {
+
+    # Not Required
+    [ $(isNumeric $videoPart) = N ] && return $ec_Error
+    [ $videoPart -gt 1 ] || return $ec_Error
+
+    # Find the id of the previous part
+    echo "Editing Previous part with link to this part..."
+    prevPart=$((videoPart-1))
+    prevPublishedPart=$(jq \
+        ". | select(.youtubeId == \"$ytVideoId\" and .part == \"$prevPart\")" \
+        "$uploadTrackingFile"
+    )
+    prevDmId=$(queryJson "dailyMotionId" "$prevPublishedPart") || exit 1
+    [ "$prevDmId" = "null" ] && raiseError "Unable to determine previous part of this video!?"
+
+    # Get video info
+    dmServerResponse=$(dmGetFieldValue video/$prevDmId "status,player_next_video,description")
+    prevDmStatus=$(queryJson "status" "$dmServerResponse") || exit 1
+    if  [ $prevDmStatus != "waiting" ] && \
+        [ $prevDmStatus != "processing" ] && \
+        [ $prevDmStatus != "ready" ] && \
+        [ $prevDmStatus != "published" ]; then
+            raiseError "Previous Part id $prevDmId has an unexpected status of $prevDmStatus !?"\
+                $'\n'"Response from server:"\
+                $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Exit if next part has already been set
+    prevDmNextId=$(queryJson "player_next_video" "$dmServerResponse") || exit 1
+    if [ "$prevDmNextId" = "$dmVideoId" ]; then
+        echo "Previous video already has link.  Canceled edit"
+        return $ec_Error
+    fi
+
+    # Update description with next part
+    prevDmDescr=$(queryJson "description" "$dmServerResponse") || exit 1
+    prevDmDescr="Watch Part ${videoPart}:"$'\n'"$dmVideoUrl"$'\n\n'"$prevDmDescr"
+
+    # Edit previous video with links to next part
+    dmServerResponse=$(curl --silent --request POST \
+        --header "Authorization: Bearer ${dmAccessToken}" \
+        --data-urlencode "description=$prevDmDescr" \
+        --data-urlencode "player_next_video=${dmVideoId}" \
+        https://api.dailymotion.com/video/$prevDmId
+    )
+    dmEditedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
+    if [ "$dmEditedVideoId" = "null" ]; then
+        raiseError "Failed to update previous part ID $prevDmId !"\
+            $'\n'"Response from server:"\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+    echo "Successfully edited video id $dmEditedVideoId"
+
+}
+
+dmUploadFile() {
+
+    # Cleat Output Argument
+    dmPostedUrl=
+
+    # Input argument
+    uploadFilePath=$@
+    if ! [ -f "$uploadFilePath" ]; then
+        printError "Upload File does not exist!? $uploadFilePath"
+        return $ec_Error
+    fi
+
+    # Generate a new upload url
+    dmServerResponse=$(dmGetFieldValue file/upload)
+    dmUploadUrl=$(queryJson "upload_url" "$dmServerResponse") || exit 1
+    if [ "$dmUploadUrl" = "null" ]; then
+        raiseError "Unable to get an upload url for dailymotion.com!"\
+            $'\n'"Response from server: "\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Upload the file
+    dmServerResponse=$(curl --silent --request POST \
+        --form "file=@\"$uploadFilePath\"" \
+        $dmUploadUrl
+    )
+    dmPostedUrl=$(queryJson "url" "$dmServerResponse") || exit 1
+    if [ "$dmPostedUrl" = "null" ]; then
+        dmPostedUrl=
+        raiseError "Failed to upload the file to dailymotion.com!"\
+            $'\n'"Response from server: "\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+}
+
+dmGetFieldValue() {
+
+    # Context and field value provided on parameters
+    fieldContext=$1
+    fieldName=$2
+
+    # Return full response
+    curl --silent \
+        --header "Authorization: Bearer ${dmAccessToken}" \
+        ${fieldName:+ --data "fields=$fieldName"} \
+        https://api.dailymotion.com/$fieldContext
+
+}
+
+dmChangeUserField() {
+
+    # Field name provided in first argument
+    changeFieldName=$1
+    [ -z "$changeFieldName" ] && raiseError "Missing Argument 1 - the name of the field to change"
+
+    # Get current field value
+    dmServerResponse=$(dmGetFieldValue me $changeFieldName)
+    currentFieldValue=$(queryJson "$changeFieldName" "$dmServerResponse") || exit 1
+    if [ "$currentFieldValue" = "null" ]; then
+        raiseError "Unexpected response!?  Ensure field name '$changeFieldName' is valid"\
+            $'\n'"Response from server: "\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Confirm current field name
+    echo ""
+    echo "Current $changeFieldName:   " $currentFieldValue
+
+    # Prompt for new value
+    read -e -r -p "Change $changeFieldName to: " -i "$currentFieldValue" newFieldValue
+
+    # Exit if not provided
+    if [ -z "$newFieldValue" ] || [ "$currentFieldValue" = "$newFieldValue" ]; then
+        echo "$changeFieldName change cancelled!"
+        exit
+    fi
+
+    # Attempt change
+    dmServerResponse=$(curl --silent --request POST \
+        --header "Authorization: Bearer ${dmAccessToken}" \
+        --data-urlencode "$changeFieldName=$newFieldValue" \
+        https://api.dailymotion.com/me
+        )
+    dmResponseID=$(queryJson "id" "$dmServerResponse") || exit 1
+    if [ "$dmResponseID" = "null" ]; then
+        raiseError "Unexpected response!?"\
+            $'\n'"Response from server: "\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Check if sucessful
+    dmServerResponse=$(dmGetFieldValue me $changeFieldName)
+    replacedFieldValue=$(queryJson "$changeFieldName" "$dmServerResponse") || exit 1
+    if [ "$replacedFieldValue" = "null" ]; then
+        raiseError "Unexpected response!?"\
+            $'\n'"Response from server: "\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+    if [ "$replacedFieldValue" = "$newFieldValue" ]; then
+        echo "Sucessfully changed $changeFieldName to $replacedFieldValue"
+    else
+        echo "Failed to change ${replacedFieldValue}!  Value is still $replacedFieldValue"
+    fi
+
+}
+
+uploadChannelArt() {
+
+    # Get Arguments
+    artType=$1
+    imgFile=$2
+
+    # Check file exists
+    imgFile=$(readlink -f $imgFile)
+    [ -f "$imgFile" ] || raiseError "image file does not exist: $imgFile"
+
+    # Check type is valid
+    if [ "$artType" != "avatar" ] && [ "$artType" != "cover" ]; then
+        raiseError "invalid arg1.  Expected either 'avatar' or 'cover'"
+    fi
+
+    # Login
+    initializeDailyMotion
+
+    # Upload file to server
+    dmUploadFile "$imgFile" || exit 1
+    [ -z "$dmPostedUrl" ] && raiseError "failed to upload image file: $imgFile"
+
+    # Update Channel
+    dmServerResponse=$(curl --silent --request POST \
+        --header "Authorization: Bearer ${dmAccessToken}" \
+        --data "${artType}_url=$dmPostedUrl" \
+        https://api.dailymotion.com/me \
+        )
+
+    dmCheckAcctId=$(queryJson "id" "$dmServerResponse") || exit 1
+    if [ "$dmCheckAcctId" = "null" ]; then
+        raiseError "Failed upload account artwork!"\
+            $'\n'"Response from server:"\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Success
+    echo "Successfully uploaded account "$artType" art"
+
+}
+
+syncVideoDetails() {
+
+    # Ensure video ID has been uploaded previously
+    uploadInfoJson=$(jq \
+        --compact-output \
+        ". | select(.dailyMotionId == \"$optSyncDailyMotionID\")" \
+        "$uploadTrackingFile"
+    )
+    [ -z "$uploadInfoJson" ] \
+        && raiseError "Could not find dailymotion Video ID in uploaded list: $optSyncDailyMotionID"
+    echo "Syncing dailymotion Video ID " $optSyncDailyMotionID
+    dmVideoId=$optSyncDailyMotionID
+
+    # Get youtube video id
+    ytVideoId=$(queryJson "youtubeId" "$uploadInfoJson") || exit 1
+    [ "$ytVideoId" = "null" ] && raiseError "Could not find match youtube video id!"
+    echo "...to youtube video ID " $ytVideoId
+
+    # Extract dailymoton video details
+    initializeDailyMotion
+    videoFields="status,published,channel,title,explicit,duration,country,private,password,url,thumbnail_url,player_next_videos,tags,description"
+    dmVideoJson=$(dmGetFieldValue video/$dmVideoId "$videoFields")
+    dmConfirmedVideoId=$(queryJson "id" "$dmVideoJson") || exit 1
+    [ "$dmConfirmedVideoId" = "null" ] \
+        && raiseError "Could not get video from dailymotion!? Response:" \
+        $'\n'"$(jq "." <<< "$dmVideoJson")"
+
+    # Print existing details
+    echo "dailymotion.com video info before change: "
+    echo "$(jq "." <<< "$dmVideoJson")"
+
+    # Download Youtube json file
+    echo "Connecting to youtube-dl to get video info..."
+    videoJson=$(mktemp)
+    $ytdl --dump-json -- $ytVideoId > $videoJson
+
+    # Extract youtube video details
+    getYouTubeInfoFromJson
+    rm $videoJson
+
+    # Update fields to account for video split parts
+    videoPart=$(queryJson "part" "$uploadInfoJson") || exit 1
+    if [ $(isNumeric $videoPart) = Y ]; then
+        dmVideoUrl=$(queryJson "url" "$dmVideoJson") || exit 1
+        videoTitle=$(queryJson "title" "$uploadInfoJson") || exit 1
+        uploadVideoWithNextVideoIdPlayback=
+    fi
+
+    # Update Daily Motion video
+    echo "Updating dailymotion video..."
+    dmServerResponse=$(publishVideo)
+    dmPublishedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
+    if [ "$dmPublishedVideoId" = "null" ]; then
+        raiseError "Failed edit the video ID $dmVideoId !"\
+            $'\n'"Response from server:"\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Update previous part as well
+    addLinkToPrevVideoPart
+
+    # Mark up success
+    echo "Successfully updated video!"
+}
+
+dmQueryUploadInAllowancePeriod() {
+
+    # Input Arguments
+    formatReadable=N
+    [ "$1" = "--readable" ] && formatReadable=Y
+
+    # Current upload allowance range
+    dmCreatedAfterFilter=$(date +%s -d "-$((dmDurationAllowanceExpiry+1000)) seconds")
+
+    # Track total duration
+    dmTotalDuration=0
+
+    # Loop result pages
+    dmHasMore="true"
+    dmPage=0
+    while [ "$dmHasMore" = "true" ]; do
+        ((dmPage++))
+
+        # Get list of videos uploaded in the last day
+        dmServerResponse=$(curl --silent \
+            --header "Authorization: Bearer ${dmAccessToken}" \
+            "https://api.dailymotion.com/me/videos?page=${dmPage}&created_after=${dmCreatedAfterFilter}"
+        )
+        dmHasMore=$(queryJson "has_more" "$dmServerResponse") || exit 1
+        dmPageResp=$(queryJson "page" "$dmServerResponse") || exit 1
+        if [ $dmPageResp -ne $dmPage ]; then
+            raiseError "Did not get the expected page number!"
+            exit
+        fi
+
+        # Loop through list
+        for dmVideoId in $(jq --raw-output ".list[] | .id" <<< "$dmServerResponse"); do
+            dmServerResponse=$(dmGetFieldValue video/$dmVideoId "created_time,duration,status")
+            dmCreatedTime=$(queryJson "created_time" "$dmServerResponse") || exit 1
+            dmDuration=$(queryJson "duration" "$dmServerResponse") || exit 1
+            dmStatus=$(queryJson "status" "$dmServerResponse") || exit 1
+            ((dmTotalDuration+=dmDuration))
+
+            # echo results
+            if [ $formatReadable = Y ]; then
+                echo $dmVideoId $(date -d @$dmCreatedTime) $(date +%T -u -d @$dmDuration) "("$dmDuration")" $dmStatus
+            else
+                echo $dmCreatedTime $dmDuration $dmVideoId $dmStatus
+            fi
+        done
+    done
+
+}
+
+showUploadsDoneToday() {
+
+    # Show uploads from daily motion
+    echo ""
+    echo "Uploads to dailymotion.com in last 24 hours..."
+    dmQueryUploadInAllowancePeriod --readable
+    echo "Total Upload Duration: " $((dmTotalDuration/60/60))"h "$(date +"%Mm %Ss" -u -d @$dmTotalDuration) "("$dmTotalDuration")"
+
+    # Print info on when next upload can be done
+    waitingTime=$((maxWaitTill+dmExpiryToleranceTime-$(date +%s)))
+    if [ $waitingTime -gt 0 ]; then
+        echo ""
+        echo "Next upload allowance will be freed at "$(date -d @$maxWaitTill)
+    fi
+
+}
+
+echoUploadsToday() {
+
+    # Show whats been published on dailymotion in past 24hrs
+    showUploadsDoneToday
+
+    # Query limits based on max video duration
+    echo ""
+    echo "comparing with local tracking file..."
+    optDebug=Y
+    videoDuration=$dmMaxVideoDuration
+    dmGetAllowance --do-not-print
+
+    # Display time to wait for max upload
+    echo ""
+    echo "Time to wait for max upload duration "$(date -d @$maxWaitTill)
+
+}
+
+initializeDailyMotion() {
+
+    # Load the properties file
+    loadPropertiesFile
+
+    # Get access token for daily motion login
+    getDailyMotionAccess
+
+    # Get/Display info on the daily motion account used
+    getUserInfo
+
+}
+
+testDailyMotionAvailablity() {
+
+    testAvailablilty=hello
+    dmServerResponse=$(curl --silent \
+        https://api.dailymotion.com/echo?message=$testAvailablilty
+    )
+    dmMessageResponse=$(queryJson "message" "$dmServerResponse") || exit 1
+    if [ "$dmMessageResponse" != "$testAvailablilty" ]; then
+        raiseError "Could not get valid response from dailymotion.com!?  Website may not be available."\
+            $'\n'"Response from server:"\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+}
+
+getDailyMotionAccess() {
+
+    # Test website is available
+    testDailyMotionAvailablity
+
+    # Has access been granted?
+    if [ -z "$dmRefreshToken" ]; then
+
+        # Interactive mode required
+        [ -t 0 ] || raiseError "Access not granted to a dailymotion account!"$'\n'"Run from terminal manually to provide login details"
+
+        # Run procedure to grant access
+        grantDailyMotionAccess
+
+    else
+
+        # API key required
+        [ -z "$dmApiKey" ]    && raiseError "dailyMotion API keys required!"
+        [ -z "$dmApiSecret" ] && raiseError "dailyMotion API secret required!"
+
+        # Refresh access token
+        dmServerResponse=$(curl --silent \
+            --data "grant_type=refresh_token" \
+            --data "client_id=$dmApiKey" \
+            --data "client_secret=$dmApiSecret" \
+            --data "refresh_token=$dmRefreshToken" \
+            https://api.dailymotion.com/oauth/token \
+        )
+
+    fi
+
+    # Get Access Token
+    dmAccessToken=$(queryJson "access_token" "$dmServerResponse") || exit 1
+    if [ "$dmAccessToken" = "null" ]; then
+        echo "Unable to get upload access to dailymotion.com!"
+        echo "Response from server:"
+        echo "$(jq "." <<< "$dmServerResponse")"
+        echo "Prompting for login info..."
+
+        # Get new refresh token
+        dmRefreshToken=
+        getDailyMotionAccess
+        exit
+    fi
+
+    # Track Expiry Time
+    dmAccessExpiresIn=$(queryJson "expires_in" "$dmServerResponse") || exit 1
+    [ "$dmAccessExpiresIn" = "null" ] \
+        && raiseError "expires_in value not specified in response!?"
+    dmAccessExpireTime=$(date +%s -d "+$dmAccessExpiresIn seconds")
+
+    # Set time to renew the access token (1 hour before expiry)
+    dmAccessRenewTime=$((dmAccessExpireTime-dmVideoAllowanceExpiry))
+
+}
+
+getUserInfo() {
+
+    # Get Info on the current user
+    dmServerResponse=$(dmGetFieldValue me "id,screenname,username,limits,created_time,status,partner,verified")
+    dmAccountId=$(queryJson "id" "$dmServerResponse") || exit 1
+    dmAccountName=$(queryJson "screenname" "$dmServerResponse") || exit 1
+    [ "$dmAccountName" = "null" ] \
+        && raiseError "Unable to get details of the upload user?  Server Response:"\
+        $'\n'"$(jq "." <<< "$dmServerResponse")"
+
+    # Check the Account is Active
+    dmUserStatus=$(queryJson "status" "$dmServerResponse") || exit 1
+    [ "$dmUserStatus" = "active" ] || raiseError "$dmAccountName Account Status is $dmUserStatus"
+
+    # Extract other info
+    dmMaxVideoDuration=$(queryJson "limits.video_duration" "$dmServerResponse") || exit 1
+    dmMaxVideoSize=$(queryJson "limits.video_size" "$dmServerResponse") || exit 1
+    dmIsParnter=$(queryJson "partner" "$dmServerResponse") || exit 1
+    dmIsVerified=$(queryJson "verified" "$dmServerResponse") || exit 1
+    dmUsername=$(queryJson "username" "$dmServerResponse") || exit 1
+
+    # Check for time difference between local PC and server
+    checkServerTimeOffset
+
+    # Mark up success
+    echo "Successfully connected to dailymotion.com"
+    echo "Channel Name:                  " $dmAccountName
+    echo "Signed as Partner:             " $dmIsParnter
+    echo "Verified Partner:              " $dmIsVerified
+    echo "Max Allowed Duration:          " $dmMaxVideoDuration
+    echo "Max Allowed File Size:         " $dmMaxVideoSize
+    echo "Access expires at:             " $(date -d @$dmAccessExpireTime)
+    if [ $optDebug = Y ]; then
+        echo "Access Token:                  " $dmAccessToken
+    fi
+    echo ""
+
+    # Higher description length for partner accounts
+    if [ $dmIsParnter = true ]; then
+        dmMaxDescription=$dmMaxDescriptionForPartners
+    else
+        # Cannot upload thumbnails unless a partner
+        if [ "$mirrorVideoThumbnailsOpt" = "Y" ]; then
+            mirrorVideoThumbnailsOpt=
+            printError "Cannot upload thumbnails unless using a Partner account!"
+            printError "Please update your .prop file for mirrorVideoThumbnails=N"
+            echo ""
+        fi
+    fi
+
+    # Higher uploads per day limit if Verified Partner
+    if [ $dmIsVerified = true ]; then
+        dmVideosPerDay=$dmVideosPerDayForVerifiedPartners
+    fi
+
+    # Apply 1% tolerance to max file size
+    dmMaxVideoSizeTolerance=$((dmMaxVideoSize/100*99))
+
+}
+
+checkServerTimeOffset() {
+
+    # Create a playlist
+    dummyPlaylistName="DEV_timeCheck"$((RANDOM % 100))
+    dmServerResponse=$(curl --silent --request POST \
+        --header "Authorization: Bearer ${dmAccessToken}" \
+        --data-urlencode "name=$dummyPlaylistName" \
+        https://api.dailymotion.com/me/playlists
+    )
+
+    # Record local time
+    localPCTime=$(date +%s)
+
+    # Check for Error
+    dmPlaylistID=$(queryJson "id" "$dmServerResponse") || exit 1
+    if [ "$dmPlaylistID" = "null" ]; then
+        raiseError "Failed to create playlist!?"\
+            $'\n'"Response from server: "\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Get created time of playlist
+    dmServerResponse=$(dmGetFieldValue playlist/$dmPlaylistID created_time)
+    dmTime=$(queryJson "created_time" "$dmServerResponse") || exit 1
+    if [ "$dmTime" = "null" ]; then
+        raiseError "Failed to read playlist id $dmPlaylistID ?"\
+            $'\n'"Response from server: "\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Show the difference
+    dmTimeOffset=$((dmTime-localPCTime))
+    echo "Local PC Time:                 " $(date -d @$localPCTime)
+    echo "Dailymotion Time:              " $(date -d @$dmTime)
+    echo "Time Difference:               " $dmTimeOffset " seconds"
+    echo ""
+
+    # Delete the playlist (done on loop as it did fail to delete once)
+    deleteTimeout=$(date +%s -d "+ 60 seconds")
+    until [ $(date +%s) -gt $deleteTimeout ]; do
+        dmServerResponse=$(curl --silent --request DELETE \
+            --header "Authorization: Bearer ${dmAccessToken}" \
+            https://api.dailymotion.com/playlist/$dmPlaylistID
+        )
+        dmDeleteError=$(queryJson "error" "$dmServerResponse") || exit 1
+        [ "$dmDeleteError" = "null" ] && break
+        sleep 3
+    done
+
+    # Print Error if failed to delete
+    if ! [ "$dmDeleteError" = "null" ]; then
+        raiseError "Failed to delete playlist id $dmPlaylistID ?"\
+            $'\n'"Response from server: "\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+}
+
+revokeDailyMotionAccess() {
+
+    # Error if no accesss granted
+    [ -z "$dmRefreshToken" ] && raiseError "No access has been granted to any account!"
+
+    # Login to existing token and revoke
+    [ -z "$dmAccessToken" ] || getDailyMotionAccess
+
+    # Existing access token required
+    [ -z "$dmAccessToken" ] && raiseError "Not currently logged in!  Cannot revoke access!"
+
+    # Logout
+    dmServerResponse=$(curl --silent \
+        --header "Authorization: Bearer ${dmAccessToken}" \
+        https://api.dailymotion.com/logout \
+        )
+
+    # Check for error
+    dmLogoutError=$(queryJson "error" "$dmServerResponse") || exit 1
+    if ! [ "$dmLogoutError" = "null" ]; then
+        raiseError "Failed to logout of account!?"\
+            $'\n'"Response from server: "\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Remove refresh token
+    dmAccessToken=
+    dmRefreshToken=
+    echo "" >> "$propertiesFile"
+    echo "" >> "$propertiesFile"
+    echo "# Dailymotion Access Revoked for $dmUsername on $(date)" >> "$propertiesFile"
+    echo "dmRefreshToken=" >> "$propertiesFile"
+
+    # Markup success
+    echo "Successfully logout out from $dmUsername"
+
+}
+
+grantDailyMotionAccess() {
+
+    # Clear entry fields
+    dmApiKey=
+    dmApiSecret=
+    dmUsername=
+    dmPassword=
+
+    # Prompt for login
+    echo ""
+    read -r -p "Enter Username for Dailymotion: " dmUsername
+    [ -z "$dmUsername" ] && raiseError "No entry. Canceled Request"
+    read -s -r -p "Enter Password: " dmPassword
+    [ -z "$dmPassword" ] && raiseError "No entry. Canceled Request"
+    echo ""
+
+    # prompt for api keys
+    echo ""
+    echo "If you have not yet created your API key go to https://www.dailymotion.com/settings/developer"
+    echo ""
+    read -r -p "Enter API Key: " dmApiKey
+    [ -z "$dmApiKey" ] && raiseError "No entry. Canceled Request"
+    read -r -p "Enter API Secret: " dmApiSecret
+    [ -z "$dmApiSecret" ] && raiseError "No entry. Canceled Request"
+
+    # Test the login and grant refresh token
+    echo "Testing login..."
+    echo ""
+    dmServerResponse=$(curl --silent \
+        --data "grant_type=password" \
+        --data "scope=userinfo+manage_videos+manage_playlists" \
+        --data "client_id=$dmApiKey" \
+        --data "client_secret=$dmApiSecret" \
+        --data-urlencode "username=$dmUsername" \
+        --data-urlencode "password=$dmPassword" \
+        https://api.dailymotion.com/oauth/token \
+    )
+    dmPassword=
+    dmRefreshToken=$(queryJson "refresh_token" "$dmServerResponse") || exit 1
+    if [ "$dmRefreshToken" = "null" ]; then
+        raiseError "Unable to get upload access to dailymotion.com!"\
+            $'\n'"Response from server: "\
+            $'\n'"$(jq "." <<< "$dmServerResponse")"
+    fi
+
+    # Save keys and refresh token to properties file
+    echo "" >> "$propertiesFile"
+    echo "" >> "$propertiesFile"
+    echo "# Dailymotion Authorised Account Access Keys" >> "$propertiesFile"
+    echo "dmApiKey=\"$dmApiKey\"" >> "$propertiesFile"
+    echo "dmApiSecret=\"$dmApiSecret\"" >> "$propertiesFile"
+    echo "dmRefreshToken=\"$dmRefreshToken\"" >> "$propertiesFile"
+
+}
+
+dailyMotionReLogin() {
+
+    # Load the properties file
+    loadPropertiesFile
+
+    # Login to existing token and revoke
+    if ! [ -z "$dmRefreshToken" ]; then
+        getDailyMotionAccess
+        if ! [ -z "$dmAccessToken" ]; then
+            promptYesNo "Access is already granted. Do you want to revoke the existing access and login again"
+            [ $? -eq $ec_Yes ] || exit
+            revokeDailyMotionAccess
+        fi
+        dmRefreshToken=
+    fi
+
+    # Prompt user for new access
+    grantDailyMotionAccess
+
+    # Test the new login
+    getDailyMotionAccess
+
+    # Get/Display info on the daily motion account used
+    getUserInfo
+
+}
+
+firstTimeSetup() {
 
     # Info
     echo "Entering First-Time-Setup mode..."
 
     # Interactive mode required
-    [ -t 0 ] || raiseError "dailyMotionFirstTimeSetup must only be run from the terminal manually!"
+    [ -t 0 ] || raiseError "firstTimeSetup must only be run from the terminal manually!"
 
     # Install Dependencies
     installDependencies
@@ -1945,75 +3042,6 @@ validateSetup() {
     if [ $setupValidated = N ]; then
         echo "Alternativly run the command --first-time-setup to start from scratch"
     fi
-
-}
-
-dailyMotionReLogin() {
-
-    # Load the properties file
-    loadPropertiesFile
-
-    # Login to existing token and revoke
-    if ! [ -z "$dmRefreshToken" ]; then
-        getDailyMotionAccess
-        if ! [ -z "$dmAccessToken" ]; then
-            promptYesNo "Access is already granted. Do you want to revoke the existing access and login again"
-            [ $? -eq $ec_Yes ] || exit
-            revokeDailyMotionAccess
-        fi
-        dmRefreshToken=
-    fi
-
-    # Prompt user for new access
-    grantDailyMotionAccess
-
-    # Test the new login
-    getDailyMotionAccess
-
-    # Get/Display info on the daily motion account used
-    getUserInfo
-
-}
-
-initializeDailyMotion() {
-
-    # Load the properties file
-    loadPropertiesFile
-
-    # Get access token for daily motion login
-    getDailyMotionAccess
-
-    # Get/Display info on the daily motion account used
-    getUserInfo
-
-}
-
-setDefaultPropteries() {
-
-    # Default Properties
-    [ -z "$processingDirectory" ]                   && processingDirectory=
-    [ -z "$keepDownloadedVideos" ]                  && keepDownloadedVideos=N
-    [ -z "$youtubePlaylistReverse" ]                && youtubePlaylistReverse=N
-    [ -z "$delayDownloadIfVideoIsLongerThan" ]      && delayDownloadIfVideoIsLongerThan="60 minutes"
-    [ -z "$delayedVideosWillBeUploadedAfter" ]      && delayedVideosWillBeUploadedAfter="7 days"
-    [ -z "$targetRemainingAllowance" ]              && targetRemainingAllowance="30 seconds"
-    [ -z "$durationAllowanceSearchTimeout" ]        && durationAllowanceSearchTimeout="10 minutes"
-    [ -z "$mirrorVideoThumbnails" ]                 && mirrorVideoThumbnails=N
-    [ -z "$uploadVideoAppendedTags" ]               && uploadVideoAppendedTags=
-    [ -z "$uploadVideoWithNextVideoIdPlayback" ]    && uploadVideoWithNextVideoIdPlayback=
-    [ -z "$uploadVideoAsPrivate" ]                  && uploadVideoAsPrivate=N
-    [ -z "$uploadVideoWithPassword" ]               && uploadVideoWithPassword=
-    [ -z "$uploadVideoAsCountryCode" ]              && uploadVideoAsCountryCode=
-    [ -z "$uploadVideoInCategory" ]                 && uploadVideoInCategory=
-    [ -z "$uploadVideoDescrTEMPLATE" ]              && uploadVideoDescrTEMPLATE='$youtubeVideoDescr
-
-Originally uploaded on $youtubeVideoUploadDate to:
-$youtubeVideoLink
-
-Subscribe on Youtube:
-$youtubeChannel
-
-$youtubeVideoTags'
 
 }
 
@@ -2218,887 +3246,6 @@ validateProperties() {
 
 }
 
-testDailyMotionAvailablity() {
-
-    testAvailablilty=hello
-    dmServerResponse=$(curl --silent \
-        https://api.dailymotion.com/echo?message=$testAvailablilty
-    )
-    dmMessageResponse=$(queryJson "message" "$dmServerResponse") || exit 1
-    if [ "$dmMessageResponse" != "$testAvailablilty" ]; then
-        raiseError "Could not get valid response from dailymotion.com!?  Website may not be available."\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-}
-
-revokeDailyMotionAccess() {
-
-    # Error if no accesss granted
-    [ -z "$dmRefreshToken" ] && raiseError "No access has been granted to any account!"
-
-    # Login to existing token and revoke
-    [ -z "$dmAccessToken" ] || getDailyMotionAccess
-
-    # Existing access token required
-    [ -z "$dmAccessToken" ] && raiseError "Not currently logged in!  Cannot revoke access!"
-
-    # Logout
-    dmServerResponse=$(curl --silent \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        https://api.dailymotion.com/logout \
-        )
-
-    # Check for error
-    dmLogoutError=$(queryJson "error" "$dmServerResponse") || exit 1
-    if ! [ "$dmLogoutError" = "null" ]; then
-        raiseError "Failed to logout of account!?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Remove refresh token
-    dmAccessToken=
-    dmRefreshToken=
-    echo "" >> "$propertiesFile"
-    echo "" >> "$propertiesFile"
-    echo "# Dailymotion Access Revoked for $dmUsername on $(date)" >> "$propertiesFile"
-    echo "dmRefreshToken=" >> "$propertiesFile"
-
-    # Markup success
-    echo "Successfully logout out from $dmUsername"
-
-}
-
-grantDailyMotionAccess() {
-
-    # Clear entry fields
-    dmApiKey=
-    dmApiSecret=
-    dmUsername=
-    dmPassword=
-
-    # Prompt for login
-    echo ""
-    read -r -p "Enter Username for Dailymotion: " dmUsername
-    [ -z "$dmUsername" ] && raiseError "No entry. Canceled Request"
-    read -s -r -p "Enter Password: " dmPassword
-    [ -z "$dmPassword" ] && raiseError "No entry. Canceled Request"
-    echo ""
-
-    # prompt for api keys
-    echo ""
-    echo "If you have not yet created your API key go to https://www.dailymotion.com/settings/developer"
-    echo ""
-    read -r -p "Enter API Key: " dmApiKey
-    [ -z "$dmApiKey" ] && raiseError "No entry. Canceled Request"
-    read -r -p "Enter API Secret: " dmApiSecret
-    [ -z "$dmApiSecret" ] && raiseError "No entry. Canceled Request"
-
-    # Test the login and grant refresh token
-    echo "Testing login..."
-    echo ""
-    dmServerResponse=$(curl --silent \
-        --data "grant_type=password" \
-        --data "scope=userinfo+manage_videos+manage_playlists" \
-        --data "client_id=$dmApiKey" \
-        --data "client_secret=$dmApiSecret" \
-        --data-urlencode "username=$dmUsername" \
-        --data-urlencode "password=$dmPassword" \
-        https://api.dailymotion.com/oauth/token \
-    )
-    dmPassword=
-    dmRefreshToken=$(queryJson "refresh_token" "$dmServerResponse") || exit 1
-    if [ "$dmRefreshToken" = "null" ]; then
-        raiseError "Unable to get upload access to dailymotion.com!"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Save keys and refresh token to properties file
-    echo "" >> "$propertiesFile"
-    echo "" >> "$propertiesFile"
-    echo "# Dailymotion Authorised Account Access Keys" >> "$propertiesFile"
-    echo "dmApiKey=\"$dmApiKey\"" >> "$propertiesFile"
-    echo "dmApiSecret=\"$dmApiSecret\"" >> "$propertiesFile"
-    echo "dmRefreshToken=\"$dmRefreshToken\"" >> "$propertiesFile"
-
-}
-
-getDailyMotionAccess() {
-
-    # Test website is available
-    testDailyMotionAvailablity
-
-    # Has access been granted?
-    if [ -z "$dmRefreshToken" ]; then
-
-        # Interactive mode required
-        [ -t 0 ] || raiseError "Access not granted to a dailymotion account!"$'\n'"Run from terminal manually to provide login details"
-
-        # Run procedure to grant access
-        grantDailyMotionAccess
-
-    else
-
-        # API key required
-        [ -z "$dmApiKey" ]    && raiseError "dailyMotion API keys required!"
-        [ -z "$dmApiSecret" ] && raiseError "dailyMotion API secret required!"
-
-        # Refresh access token
-        dmServerResponse=$(curl --silent \
-            --data "grant_type=refresh_token" \
-            --data "client_id=$dmApiKey" \
-            --data "client_secret=$dmApiSecret" \
-            --data "refresh_token=$dmRefreshToken" \
-            https://api.dailymotion.com/oauth/token \
-        )
-
-    fi
-
-    # Get Access Token
-    dmAccessToken=$(queryJson "access_token" "$dmServerResponse") || exit 1
-    if [ "$dmAccessToken" = "null" ]; then
-        echo "Unable to get upload access to dailymotion.com!"
-        echo "Response from server:"
-        echo "$(jq "." <<< "$dmServerResponse")"
-        echo "Prompting for login info..."
-
-        # Get new refresh token
-        dmRefreshToken=
-        getDailyMotionAccess
-        exit
-    fi
-
-    # Track Expiry Time
-    dmAccessExpiresIn=$(queryJson "expires_in" "$dmServerResponse") || exit 1
-    [ "$dmAccessExpiresIn" = "null" ] \
-        && raiseError "expires_in value not specified in response!?"
-    dmAccessExpireTime=$(date +%s -d "+$dmAccessExpiresIn seconds")
-
-    # Set time to renew the access token (1 hour before expiry)
-    dmAccessRenewTime=$((dmAccessExpireTime-dmVideoAllowanceExpiry))
-
-}
-
-getUserInfo() {
-
-    # Get Info on the current user
-    dmServerResponse=$(curl --silent \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data "fields=id,screenname,username,limits,created_time,status,partner,verified" \
-        https://api.dailymotion.com/me
-    )
-    dmAccountId=$(queryJson "id" "$dmServerResponse") || exit 1
-    dmAccountName=$(queryJson "screenname" "$dmServerResponse") || exit 1
-    [ "$dmAccountName" = "null" ] \
-        && raiseError "Unable to get details of the upload user?  Server Response:"\
-        $'\n'"$(jq "." <<< "$dmServerResponse")"
-
-    # Check the Account is Active
-    dmUserStatus=$(queryJson "status" "$dmServerResponse") || exit 1
-    [ "$dmUserStatus" = "active" ] || raiseError "$dmAccountName Account Status is $dmUserStatus"
-
-    # Extract other info
-    dmMaxVideoDuration=$(queryJson "limits.video_duration" "$dmServerResponse") || exit 1
-    dmMaxVideoSize=$(queryJson "limits.video_size" "$dmServerResponse") || exit 1
-    dmIsParnter=$(queryJson "partner" "$dmServerResponse") || exit 1
-    dmIsVerified=$(queryJson "verified" "$dmServerResponse") || exit 1
-    dmUsername=$(queryJson "username" "$dmServerResponse") || exit 1
-
-    # Check for time difference between local PC and server
-    checkServerTimeOffset
-
-    # Mark up success
-    echo "Successfully connected to dailymotion.com"
-    echo "Channel Name:                  " $dmAccountName
-    echo "Signed as Partner:             " $dmIsParnter
-    echo "Verified Partner:              " $dmIsVerified
-    echo "Max Allowed Duration:          " $dmMaxVideoDuration
-    echo "Max Allowed File Size:         " $dmMaxVideoSize
-    echo "Access expires at:             " $(date -d @$dmAccessExpireTime)
-    if [ $optDebug = Y ]; then
-        echo "Access Token:                  " $dmAccessToken
-    fi
-    echo ""
-
-    # Higher description length for partner accounts
-    if [ $dmIsParnter = true ]; then
-        dmMaxDescription=$dmMaxDescriptionForPartners
-    else
-        # Cannot upload thumbnails unless a partner
-        if [ "$mirrorVideoThumbnailsOpt" = "Y" ]; then
-            mirrorVideoThumbnailsOpt=
-            printError "Cannot upload thumbnails unless using a Partner account!"
-            printError "Please update your .prop file for mirrorVideoThumbnails=N"
-            echo ""
-        fi
-    fi
-
-    # Higher uploads per day limit if Verified Partner
-    if [ $dmIsVerified = true ]; then
-        dmVideosPerDay=$dmVideosPerDayForVerifiedPartners
-    fi
-
-    # Apply 1% tolerance to max file size
-    dmMaxVideoSizeTolerance=$((dmMaxVideoSize/100*99))
-
-}
-
-dmGetFieldValue() {
-
-    # Context and field value provided on parameters
-    fieldContext=$1
-    fieldName=$2
-
-    # Return full response
-    curl --silent \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data "fields=$fieldName" \
-        https://api.dailymotion.com/$fieldContext
-
-}
-
-dmChangeUserField() {
-
-    # Field name provided in first argument
-    changeFieldName=$1
-    [ -z "$changeFieldName" ] && raiseError "Missing Argument 1 - the name of the field to change"
-
-    # Get current field value
-    dmServerResponse=$(dmGetFieldValue me $changeFieldName)
-    currentFieldValue=$(queryJson "$changeFieldName" "$dmServerResponse") || exit 1
-    if [ "$currentFieldValue" = "null" ]; then
-        raiseError "Unexpected response!?  Ensure field name '$changeFieldName' is valid"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Confirm current field name
-    echo ""
-    echo "Current $changeFieldName:   " $currentFieldValue
-
-    # Prompt for new value
-    read -e -r -p "Change $changeFieldName to: " -i "$currentFieldValue" newFieldValue
-
-    # Exit if not provided
-    if [ -z "$newFieldValue" ] || [ "$currentFieldValue" = "$newFieldValue" ]; then
-        echo "$changeFieldName change cancelled!"
-        exit
-    fi
-
-    # Attempt change
-    dmServerResponse=$(curl --silent --request POST \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data-urlencode "$changeFieldName=$newFieldValue" \
-        https://api.dailymotion.com/me
-        )
-    dmResponseID=$(queryJson "id" "$dmServerResponse") || exit 1
-    if [ "$dmResponseID" = "null" ]; then
-        raiseError "Unexpected response!?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Check if sucessful
-    dmServerResponse=$(dmGetFieldValue me $changeFieldName)
-    replacedFieldValue=$(queryJson "$changeFieldName" "$dmServerResponse") || exit 1
-    if [ "$replacedFieldValue" = "null" ]; then
-        raiseError "Unexpected response!?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-    if [ "$replacedFieldValue" = "$newFieldValue" ]; then
-        echo "Sucessfully changed $changeFieldName to $replacedFieldValue"
-    else
-        echo "Failed to change ${replacedFieldValue}!  Value is still $replacedFieldValue"
-    fi
-
-}
-
-checkServerTimeOffset() {
-
-    # Create A playlist
-    dummyPlaylistName="DEV_timeCheck"$((RANDOM % 100))
-    dmServerResponse=$(curl --silent --request POST \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data-urlencode "name=$dummyPlaylistName" \
-        https://api.dailymotion.com/me/playlists
-    )
-
-    # Record local time
-    localPCTime=$(date +%s)
-
-    # Check for Error
-    dmPlaylistID=$(queryJson "id" "$dmServerResponse") || exit 1
-    if [ "$dmPlaylistID" = "null" ]; then
-        raiseError "Failed to create playlist!?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Get created time of playlist
-    dmServerResponse=$(curl --silent \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data "fields=created_time" \
-        https://api.dailymotion.com/playlist/$dmPlaylistID
-    )
-    dmTime=$(queryJson "created_time" "$dmServerResponse") || exit 1
-    if [ "$dmTime" = "null" ]; then
-        raiseError "Failed to read playlist id $dmPlaylistID ?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Show the difference
-    dmTimeOffset=$((dmTime-localPCTime))
-    echo "Local PC Time:                 " $(date -d @$localPCTime)
-    echo "Dailymotion Time:              " $(date -d @$dmTime)
-    echo "Time Difference:               " $dmTimeOffset " seconds"
-    echo ""
-
-    # Delete the playlist (done on loop as it did fail to delete once)
-    deleteTimeout=$(date +%s -d "+ 60 seconds")
-    until [ $(date +%s) -gt $deleteTimeout ]; do
-        dmServerResponse=$(curl --silent --request DELETE \
-            --header "Authorization: Bearer ${dmAccessToken}" \
-            https://api.dailymotion.com/playlist/$dmPlaylistID
-        )
-        dmDeleteError=$(queryJson "error" "$dmServerResponse") || exit 1
-        [ "$dmDeleteError" = "null" ] && break
-        sleep 3
-    done
-
-    # Print Error if failed to delete
-    if ! [ "$dmDeleteError" = "null" ]; then
-        raiseError "Failed to delete playlist id $dmPlaylistID ?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-}
-
-dmUploadFile() {
-
-    # Cleat Output Argument
-    dmPostedUrl=
-
-    # Input argument
-    uploadFilePath=$@
-    if ! [ -f "$uploadFilePath" ]; then
-        printError "Upload File does not exist!? $uploadFilePath"
-        return $ec_Error
-    fi
-
-    # Generate a new upload url
-    dmServerResponse=$(curl --silent \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        https://api.dailymotion.com/file/upload
-    )
-    dmUploadUrl=$(queryJson "upload_url" "$dmServerResponse") || exit 1
-    if [ "$dmUploadUrl" = "null" ]; then
-        raiseError "Unable to get an upload url for dailymotion.com!"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Upload the file
-    dmServerResponse=$(curl --silent --request POST \
-        --form "file=@\"$uploadFilePath\"" \
-        $dmUploadUrl
-    )
-    dmPostedUrl=$(queryJson "url" "$dmServerResponse") || exit 1
-    if [ "$dmPostedUrl" = "null" ]; then
-        dmPostedUrl=
-        raiseError "Failed to upload the file to dailymotion.com!"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-}
-
-uploadToDailyMotion() {
-
-    # Requires Title
-    [ -z "$videoTitle" ] && raiseError "Video Title required!"
-
-    # Wait 30 minutes before the required time before uploading
-    waitForUploadAllowance $waitTimeBeforeUploading
-
-    # Renew Access Token
-    if [ $(date +%s) -gt $dmAccessRenewTime ]; then
-        echo "Renewing Daily Motion Access Token..."
-        getDailyMotionAccess
-    fi
-
-    # Upload the Video
-    echo $(date)" - uploading video..."
-    dmUploadFile "$videoFilePath" || exit 1
-    if [ -z "$dmPostedUrl" ]; then
-        raiseError "No Response from upload url!?"
-    fi
-
-    # Wait full required time for required allowance to be available
-    waitForUploadAllowance
-
-    # Post the video to channel
-    echo $(date)" - post video to channel..."
-    dmServerResponse=$(curl --silent --request POST \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data "url=$dmPostedUrl" \
-        https://api.dailymotion.com/me/videos
-    )
-
-    # Check for failure to post video
-    dmVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
-    if [ "$dmVideoId" = "null" ]; then
-
-        # Print full details of the error
-        echo "Failed post the video to the account!"
-        echo "Response from server:"
-        echo "$(jq "." <<< "$dmServerResponse")"
-
-        # Suspend account for 24hours if limits exceeded
-        # https://faq.dailymotion.com/hc/en-us/articles/115009030568-Upload-policies
-        dmErrorReason=$(queryJson "error.error_data.reason" "$dmServerResponse") || exit 1
-        if [ "$dmErrorReason" = "upload_limit_exceeded" ]; then
-            echo "Upload limit exceeded!"
-            echo "Upload privileges suspended till "$(date -d "+$dmDurationAllowanceExpiry seconds")
-            echo "For more info check: https://www.dailymotion.com/upload"
-
-            # Show whats being uploaded in past day...
-            echo ""
-            echo "Running --show-dm-uploads command for your review..."
-            echoUploadsToday
-
-            # Markup that account is locked out for 24-hours
-            dmTrackAllowance $dmDurationAllowance
-
-        else
-            # Track the duration just encase
-            dmTrackAllowance $videoDuration
-        fi
-
-        # Exit the program
-        exitRoutine
-    fi
-
-    # Initially track against current time (but will be updated later to the published time)
-    dmServerResponse=$(getVideoInfo $dmVideoId)
-    dmDuration=$(queryJson "duration" "$dmServerResponse") || exit 1
-    dmTrackAllowance $dmDuration $dmVideoId "waiting"
-
-    # Publish the video
-    echo $(date)" - publishing video..."
-    dmServerResponse=$(publishVideo)
-    dmPublishedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
-    if [ "$dmPublishedVideoId" = "null" ]; then
-        # Print the error for review
-        raiseError "Failed publish the video ID $dmVideoId !"\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Update upload statistics
-    ((totalVideosUploaded++))
-    ((totalDurationUploaded+=videoDuration))
-
-    # Record upload to json file
-    jq -n -c \
-        --arg ut "$ytVideoId" \
-        --arg dm "$dmVideoId" \
-        --arg du $videoDuration \
-        --arg pt "$videoPart" \
-        --arg vt "$videoTitle" \
-        '{youtubeId: $ut, dailyMotionId: $dm, duration: $du, part: $pt, title: $vt}' \
-        >> "$uploadTrackingFile"
-
-    # Record upload to csv file
-    if ! [ -f "$uploadTrackingFileCSV" ]; then
-        echo "YouTube_ID,Dailymotion_ID,Duration,Part_No,Title" > "$uploadTrackingFileCSV"
-    fi
-    echo "${ytVideoId},${dmVideoId},${videoDuration},${videoPart},\"${videoTitle}\"" >> "$uploadTrackingFileCSV"
-
-    # Delete local files
-    if [ $keepDownloadedVideos != Y ]; then
-        rm --force "./$videoFilePath"
-        rm --force "./$videoJson"
-    fi
-
-    # Update previous part with link to this part
-    dmServerResponse=$(getVideoInfo $dmVideoId)
-    dmVideoUrl=$(queryJson "url" "$dmServerResponse") || exit 1
-    addLinkToPrevVideoPart
-
-}
-
-publishVideo() {
-
-    # Publish the video (and return json)
-    curl --silent --request POST \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data "published=true" \
-        --data "channel=$uploadVideoInCategory" \
-        --data-urlencode "title=$videoTitle" \
-        ${dmVideoDescr:+ --data-urlencode "description=$dmVideoDescr"} \
-        ${youtubeVideoTags:+ --data-urlencode "tags=$youtubeVideoTags"} \
-        ${uploadVideoWithNextVideoIdPlayback:+ --data-urlencode "player_next_video=$uploadVideoWithNextVideoIdPlayback"} \
-        ${uploadVideoWithPassword:+ --data-urlencode "password=$uploadVideoWithPassword"} \
-        ${mirrorVideoThumbnailsOpt:+ --data "thumbnail_url=$videoThumbnail"} \
-        ${uploadVideoAsPrivateOpt:+ --data "private=true"} \
-        ${uploadVideoAsCountryCode:+ --data "country=$uploadVideoAsCountryCode"} \
-        https://api.dailymotion.com/video/$dmVideoId
-
-}
-
-getVideoInfo() {
-
-    curl --silent \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data "fields=created_time,status,encoding_progress,publishing_progress,published,duration,explicit,url,title" \
-        https://api.dailymotion.com/video/$1
-
-}
-
-waitForPublish() {
-
-    # Inputs
-    dmVideoId=$1
-    publishWaitTill=$2
-
-    # Check id is valid
-    dmServerResponse=$(getVideoInfo $dmVideoId)
-    dmIdCheck=$(queryJson "id" "$dmServerResponse") || exit 1
-    if [ "dmIdCheck" = "null" ]; then
-        raiseError "Invalid video ID $dmVideoId !"\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Wait for video to finish encoding/publishing
-    until [ $(date +%s) -gt $publishWaitTill ]; do
-
-        # Query video info
-        dmServerResponse=$(getVideoInfo $dmVideoId)
-        dmStatus=$(queryJson "status" "$dmServerResponse") || exit 1
-
-        # Quit loop on unexpected status (or published)
-        [ $dmStatus != "waiting" ] && \
-        [ $dmStatus != "processing" ] && \
-        [ $dmStatus != "ready" ] && break
-
-        sleep 30
-    done
-
-    # Double-check video is published
-    dmVideoTitle=$(queryJson "title" "$dmServerResponse") || exit 1
-    if [ $dmStatus != "published" ]; then
-        dmEncodingPC=$(queryJson "encoding_progress" "$dmServerResponse") || exit 1
-        dmPublishingPC=$(queryJson "publishing_progress" "$dmServerResponse") || exit 1
-        echo ":::: $(date) - Video ID $dmVideoId is still not published! - $dmVideoTitle"
-        echo "          Status:              " $dmStatus
-        echo "          Encoding Progress:   " $dmEncodingPC"%"
-        echo "          Publishing Progress: " $dmPublishingPC"%"
-    else
-        echo ":::: $(date) - Successfully published $dmVideoTitle"
-    fi
-
-    # Warn if video was flagged as Explicit
-    dmExplicit=$(queryJson "explicit" "$dmServerResponse") || exit 1
-    if [ "$dmExplicit" = "true" ]; then
-        echo ":::: WARNING: Video ID $dmVideoId was flagged as Explicit! - $dmVideoTitle"
-    fi
-
-}
-
-uploadChannelArt() {
-
-    # Get Arguments
-    artType=$1
-    imgFile=$2
-
-    # Check file exists
-    imgFile=$(readlink -f $imgFile)
-    [ -f "$imgFile" ] || raiseError "image file does not exist: $imgFile"
-
-    # Check type is valid
-    if [ "$artType" != "avatar" ] && [ "$artType" != "cover" ]; then
-        raiseError "invalid arg1.  Expected either 'avatar' or 'cover'"
-    fi
-
-    # Login
-    initializeDailyMotion
-
-    # Upload file to server
-    dmUploadFile "$imgFile" || exit 1
-    [ -z "$dmPostedUrl" ] && raiseError "failed to upload image file: $imgFile"
-
-    # Update Channel
-    dmServerResponse=$(curl --silent --request POST \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data "${artType}_url=$dmPostedUrl" \
-        https://api.dailymotion.com/me \
-        )
-
-    dmCheckAcctId=$(queryJson "id" "$dmServerResponse") || exit 1
-    if [ "$dmCheckAcctId" = "null" ]; then
-        raiseError "Failed upload account artwork!"\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Success
-    echo "Successfully uploaded account "$artType" art"
-
-}
-
-addLinkToPrevVideoPart() {
-
-    # Not Required
-    [ $(isNumeric $videoPart) = N ] && return $ec_Error
-    [ $videoPart -gt 1 ] || return $ec_Error
-
-    # Find the id of the previous part
-    echo "Editing Previous part with link to this part..."
-    prevPart=$((videoPart-1))
-    prevPublishedPart=$(jq \
-        ". | select(.youtubeId == \"$ytVideoId\" and .part == \"$prevPart\")" \
-        "$uploadTrackingFile"
-    )
-    prevDmId=$(queryJson "dailyMotionId" "$prevPublishedPart") || exit 1
-    [ "$prevDmId" = "null" ] && raiseError "Unable to determine previous part of this video!?"
-
-    # Get video info
-    dmServerResponse=$(curl --silent \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data "fields=status,player_next_video,description" \
-        https://api.dailymotion.com/video/$prevDmId
-    )
-    prevDmStatus=$(queryJson "status" "$dmServerResponse") || exit 1
-    if  [ $prevDmStatus != "waiting" ] && \
-        [ $prevDmStatus != "processing" ] && \
-        [ $prevDmStatus != "ready" ] && \
-        [ $prevDmStatus != "published" ]; then
-            raiseError "Previous Part id $prevDmId has an unexpected status of $prevDmStatus !?"\
-                $'\n'"Response from server:"\
-                $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Exit if next part has already been set
-    prevDmNextId=$(queryJson "player_next_video" "$dmServerResponse") || exit 1
-    if [ "$prevDmNextId" = "$dmVideoId" ]; then
-        echo "Previous video already has link.  Canceled edit"
-        return $ec_Error
-    fi
-
-    # Update description with next part
-    prevDmDescr=$(queryJson "description" "$dmServerResponse") || exit 1
-    prevDmDescr="Watch Part ${videoPart}:"$'\n'"$dmVideoUrl"$'\n\n'"$prevDmDescr"
-
-    # Edit previous video with links to next part
-    dmServerResponse=$(curl --silent --request POST \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data-urlencode "description=$prevDmDescr" \
-        --data-urlencode "player_next_video=${dmVideoId}" \
-        https://api.dailymotion.com/video/$prevDmId
-    )
-    dmEditedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
-    if [ "$dmEditedVideoId" = "null" ]; then
-        raiseError "Failed to update previous part ID $prevDmId !"\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-    echo "Successfully edited video id $dmEditedVideoId"
-
-}
-
-syncVideoDetails() {
-
-    # Ensure video ID has been uploaded previously
-    uploadInfoJson=$(jq \
-        --compact-output \
-        ". | select(.dailyMotionId == \"$optSyncDailyMotionID\")" \
-        "$uploadTrackingFile"
-    )
-    [ -z "$uploadInfoJson" ] \
-        && raiseError "Could not find dailymotion Video ID in uploaded list: $optSyncDailyMotionID"
-    echo "Syncing dailymotion Video ID " $optSyncDailyMotionID
-    dmVideoId=$optSyncDailyMotionID
-
-    # Get youtube video id
-    ytVideoId=$(queryJson "youtubeId" "$uploadInfoJson") || exit 1
-    [ "$ytVideoId" = "null" ] && raiseError "Could not find match youtube video id!"
-    echo "...to youtube video ID " $ytVideoId
-
-    # Extract dailymoton video details
-    initializeDailyMotion
-    dmVideoJson=$(curl --silent \
-        --header "Authorization: Bearer ${dmAccessToken}" \
-        --data "fields=status,published,channel,title,explicit,duration,country,private,password,url,thumbnail_url,player_next_videos,tags,description" \
-        https://api.dailymotion.com/video/$dmVideoId
-    )
-    dmConfirmedVideoId=$(queryJson "id" "$dmVideoJson") || exit 1
-    [ "$dmConfirmedVideoId" = "null" ] \
-        && raiseError "Could not get video from dailymotion!? Response:" \
-        $'\n'"$(jq "." <<< "$dmVideoJson")"
-
-    # Print existing details
-    echo "dailymotion.com video info before change: "
-    echo "$(jq "." <<< "$dmVideoJson")"
-
-    # Download Youtube json file
-    echo "Connecting to youtube-dl to get video info..."
-    videoJson=$(mktemp)
-    $ytdl --dump-json -- $ytVideoId > $videoJson
-
-    # Extract youtube video details
-    getYouTubeInfoFromJson
-    rm $videoJson
-
-    # Update fields to account for video split parts
-    videoPart=$(queryJson "part" "$uploadInfoJson") || exit 1
-    if [ $(isNumeric $videoPart) = Y ]; then
-        dmVideoUrl=$(queryJson "url" "$dmVideoJson") || exit 1
-        videoTitle=$(queryJson "title" "$uploadInfoJson") || exit 1
-        uploadVideoWithNextVideoIdPlayback=
-    fi
-
-    # Update Daily Motion video
-    echo "Updating dailymotion video..."
-    dmServerResponse=$(publishVideo)
-    dmPublishedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
-    if [ "$dmPublishedVideoId" = "null" ]; then
-        raiseError "Failed edit the video ID $dmVideoId !"\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
-    fi
-
-    # Update previous part as well
-    addLinkToPrevVideoPart
-
-    # Mark up success
-    echo "Successfully updated video!"
-}
-
-dmQueryUploadInAllowancePeriod() {
-
-    # Input Arguments
-    formatReadable=N
-    [ "$1" = "--readable" ] && formatReadable=Y
-
-    # Current upload allowance range
-    dmCreatedAfterFilter=$(date +%s -d "-$((dmDurationAllowanceExpiry+1000)) seconds")
-
-    # Track total duration
-    dmTotalDuration=0
-
-    # Loop result pages
-    dmHasMore="true"
-    dmPage=0
-    while [ "$dmHasMore" = "true" ]; do
-        ((dmPage++))
-
-        # Get list of videos uploaded in the last day
-        dmServerResponse=$(curl --silent \
-            --header "Authorization: Bearer ${dmAccessToken}" \
-            "https://api.dailymotion.com/me/videos?page=${dmPage}&created_after=${dmCreatedAfterFilter}"
-        )
-        dmHasMore=$(queryJson "has_more" "$dmServerResponse") || exit 1
-        dmPageResp=$(queryJson "page" "$dmServerResponse") || exit 1
-        if [ $dmPageResp -ne $dmPage ]; then
-            raiseError "Did not get the expected page number!"
-            exit
-        fi
-
-        # Loop through list
-        for dmVideoId in $(jq --raw-output ".list[] | .id" <<< "$dmServerResponse"); do
-            dmServerResponse=$(curl --silent \
-                --header "Authorization: Bearer ${dmAccessToken}" \
-               --data "fields=created_time,duration,status" \
-                https://api.dailymotion.com/video/$dmVideoId
-            )
-            dmCreatedTime=$(queryJson "created_time" "$dmServerResponse") || exit 1
-            dmDuration=$(queryJson "duration" "$dmServerResponse") || exit 1
-            dmStatus=$(queryJson "status" "$dmServerResponse") || exit 1
-            ((dmTotalDuration+=dmDuration))
-
-            # echo results
-            if [ $formatReadable = Y ]; then
-                echo $dmVideoId $(date -d @$dmCreatedTime) $(date +%T -u -d @$dmDuration) "("$dmDuration")" $dmStatus
-            else
-                echo $dmCreatedTime $dmDuration $dmVideoId $dmStatus
-            fi
-        done
-    done
-
-}
-
-showUploadsDoneToday() {
-
-    # Show uploads from daily motion
-    echo ""
-    echo "Uploads to dailymotion.com in last 24 hours..."
-    dmQueryUploadInAllowancePeriod --readable
-    echo "Total Upload Duration: " $((dmTotalDuration/60/60))"h "$(date +"%Mm %Ss" -u -d @$dmTotalDuration) "("$dmTotalDuration")"
-
-    # Print info on when next upload can be done
-    waitingTime=$((maxWaitTill+dmExpiryToleranceTime-$(date +%s)))
-    if [ $waitingTime -gt 0 ]; then
-        echo ""
-        echo "Next upload allowance will be freed at "$(date -d @$maxWaitTill)
-    fi
-
-}
-
-echoUploadsToday() {
-
-    # Show whats been published on dailymotion in past 24hrs
-    showUploadsDoneToday
-
-    # Query limits based on max video duration
-    echo ""
-    echo "comparing with local tracking file..."
-    optDebug=Y
-    videoDuration=$dmMaxVideoDuration
-    dmGetAllowance --do-not-print
-
-    # Display time to wait for max upload
-    echo ""
-    echo "Time to wait for max upload duration "$(date -d @$maxWaitTill)
-
-}
-
-markAsDownloaded() {
-
-    # Backup existing archive file
-    [ -f "$archiveFile" ] && cp "$archiveFile" "$archiveFile.bku"
-
-    # Requested command?
-    case "$optMarkDoneID" in
-        "ALL")
-            echo "Marking all videos in .url file as downloaded..."
-            getFullListOfVideos > "$archiveFile"
-            ;;
-        "SYNC")
-            echo "Syncing with uploads .json file"
-            jq --raw-output \
-                '"youtube " + .youtubeId' \
-                "$uploadTrackingFile" \
-                > "$archiveFile"
-            ;;
-        *)
-            echo "validating id/url"...
-            confirmVideoId=$($ytdl --get-id -- $optMarkDoneID)
-            [ $? -ne $ec_Success ] && raiseError "Invalid ID/URL! $optMarkDoneID"
-            [ -z "$confirmVideoId" ] && raiseError "Invalid ID/URL! $optMarkDoneID"
-            echo "youtube $confirmVideoId" >> "$archiveFile"
-            ;;
-    esac
-    echo "done"
-
-}
-
 createUrlsFile() {
 
     # Backup existing file
@@ -3199,6 +3346,35 @@ updatePropFile() {
         # Return error to force previous call from loadPropertiesFile to move on
         return $ec_Error
     fi
+
+}
+
+setDefaultPropteries() {
+
+    # Default Properties
+    [ -z "$processingDirectory" ]                   && processingDirectory=
+    [ -z "$keepDownloadedVideos" ]                  && keepDownloadedVideos=N
+    [ -z "$youtubePlaylistReverse" ]                && youtubePlaylistReverse=N
+    [ -z "$delayDownloadIfVideoIsLongerThan" ]      && delayDownloadIfVideoIsLongerThan="60 minutes"
+    [ -z "$delayedVideosWillBeUploadedAfter" ]      && delayedVideosWillBeUploadedAfter="7 days"
+    [ -z "$targetRemainingAllowance" ]              && targetRemainingAllowance="30 seconds"
+    [ -z "$durationAllowanceSearchTimeout" ]        && durationAllowanceSearchTimeout="10 minutes"
+    [ -z "$mirrorVideoThumbnails" ]                 && mirrorVideoThumbnails=N
+    [ -z "$uploadVideoAppendedTags" ]               && uploadVideoAppendedTags=
+    [ -z "$uploadVideoWithNextVideoIdPlayback" ]    && uploadVideoWithNextVideoIdPlayback=
+    [ -z "$uploadVideoAsPrivate" ]                  && uploadVideoAsPrivate=N
+    [ -z "$uploadVideoWithPassword" ]               && uploadVideoWithPassword=
+    [ -z "$uploadVideoAsCountryCode" ]              && uploadVideoAsCountryCode=
+    [ -z "$uploadVideoInCategory" ]                 && uploadVideoInCategory=
+    [ -z "$uploadVideoDescrTEMPLATE" ]              && uploadVideoDescrTEMPLATE='$youtubeVideoDescr
+
+Originally uploaded on $youtubeVideoUploadDate to:
+$youtubeVideoLink
+
+Subscribe on Youtube:
+$youtubeChannel
+
+$youtubeVideoTags'
 
 }
 
@@ -3447,192 +3623,6 @@ testCodeDevONLY() {
     echo "nothing to test here :)"
 }
 
-defaultProcedure() {
-
-    # Standard run when not in interactive mode
-    if ! [ -t 0 ]; then
-        main > "$logFile" 2>&1
-    else
-        # Has user specified they want to do an upload?
-        echo ""
-        if [ $optUserRunUpload = Y ]; then
-
-            # Double check they want to run outside of schedule
-            echo "Running this command will start an upload outside of your set schedule"
-            echo "Try using the --edit-schedule command if you want to change when this code runs"
-            echo ""
-            promptYesNo "Are you sure you want to start uploading outside of your set schedule"
-            [ $? -eq $ec_Yes ] || exit
-
-            # Start the main procedure
-            main
-
-        else
-
-            # Has the first schedule run yet? (based on existance of log file)
-            if [ -f "$logFile" ]; then
-                watchExistingInstance
-            else
-
-                # Validate everything is setup
-                echo "Validating your setup..."
-                validateSetup
-
-                # Tell the user everything has been setup
-                echo ""
-                if [ $setupValidated = Y ]; then
-                    echo "Everything has now been setup!"
-                    echo "Please wait for the first scheduled run to kick in before looking for results"
-                    echo "You can review/change your scheduled time by using the command --edit-schedule"
-                    echo ""
-                    echo "Try using the --help command if you are looking for other options"
-                else
-                    raiseError "Validation failed!"
-                fi
-            fi
-            exit
-        fi
-    fi
-
-}
-
-procedureSelection() {
-
-    case $optRunProcedure in
-
-        # Standard routine
-        $co_mainProcedure)
-            defaultProcedure
-            ;;
-
-        # Edit the urls File
-        $co_editUrlsFile)
-            editUrlsFile
-            ;;
-
-        # Edit the Properties File
-        $co_editPropFile)
-            editPropFile
-            ;;
-
-        # Edit the Cron job File
-        $co_editCronFile)
-            editCronFile
-            ;;
-
-        # Stop the Cron Scheduled Job
-        $co_stopCronSchedule)
-            stopCronSchedule
-            ;;
-
-        # First Time setup procedure
-        $co_firstTimeSetup)
-            dailyMotionFirstTimeSetup
-            ;;
-
-        # Disable access to this api key
-        $co_dailymotionLoginRevoke)
-            rootRequired
-            initializeDailyMotion
-            revokeDailyMotionAccess
-            stopCronSchedule
-            ;;
-
-        # Reprompt dailymotion login
-        $co_dailymotionLoginNew)
-            dailyMotionReLogin
-            ;;
-
-        # Change the username on dailymotion
-        $co_ChangeDailyMotionUsername)
-            initializeDailyMotion
-            dmChangeUserField "username"
-            ;;
-
-        # Change the screenname on dailymotion
-        $co_ChangeDailyMotionScreenname)
-            initializeDailyMotion
-            dmChangeUserField "screenname"
-            ;;
-
-        # Upload image to channel avatar
-        $co_uploadAvatarImage)
-            uploadChannelArt "avatar" "$optUploadAvatarImage"
-            ;;
-
-        # Upload image to channel cover art
-        $co_uploadCoverImage)
-            uploadChannelArt "cover" "$optUploadBannerImage"
-            ;;
-        
-        # Open the published csv file
-        $co_openPublishedFile)
-            column -s, -t < "$uploadTrackingFileCSV" \
-                | less --shift=2 \
-                --LINE-NUMBERS \
-                --chop-long-lines \
-                --quit-on-intr \
-                || echo ""
-            ;;
-        
-        # Watch the log file of an existing instance
-        $co_watchExistingInstance)
-            watchExistingInstance
-            ;;
-
-        # Kill an existing running instance
-        $co_killExistingInstance)
-            killExistingInstance
-            ;;
-
-        # Self updating code
-        $co_updateSourceCode)
-            updateSourceCode
-            ;;
-
-        # Query dailymotion to see what was done today
-        $co_showUploadsToday)
-            initializeDailyMotion
-            echoUploadsToday
-            ;;
-
-        # Dump the results of the dailymotin query (above) to the local tracking file
-        $co_syncUploadsToday)
-            initializeDailyMotion
-            rebuildAllowanceFile
-            ;;
-
-        # Update the archive give to indicate which videos are already downloaded
-        $co_markAsDownloaded)
-            markAsDownloaded
-            ;;
-
-        # Sync an already uploaded video with the details on youtube
-        $co_syncVideoDetails)
-            syncVideoDetails
-            ;;
-
-        # Check the time difference between local machine and dailymotion's servers
-        $co_checkServerTimeOffset)
-            initializeDailyMotion
-            checkServerTimeOffset
-            ;;
-
-        # Run code in the test procedure (DEV ONLY)
-        $co_devTestCode)
-            testCodeDevONLY
-            ;;
-
-        # Unknown enum setting
-        *)
-            raiseError "Unknown enum run procedure number $optRunProcedure"
-            ;;
-
-    esac
-}
-
 # Start up program
 arguments=$@
 initialization
-[ $optSkipStartupChecks = Y ] || startupChecks
-procedureSelection
