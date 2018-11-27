@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.4.7
+scriptVersionNo=0.4.8
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -157,29 +157,46 @@ function isDate() {
 
 # Function convert a time string to number of seconds
 function timeInSeconds() {
-    echo $(date +%s -u -d "$(date +%F -d @0) +$@")
+    echo $(date +%s -u -d "$(date +%F -d @0) $@")
 }
 
 # function to prompt user for yes/no response
 function promptYesNo() {
+    
+    #Initial Prompt
     echo ""
-    returnResponse=$ec_Error
-    read -s -r -p "$@ (Y/N)?" -n 1 userResponse
+    read -s -r -p "$@? [Y/n] " -n 1 userResponse
+    
+    # Check and wait for valid response
     while true; do
-        case $userResponse in
-            Y|y)
-                returnResponse=$ec_Yes
-                break
-                ;;
-            N|n)
-                returnResponse=$ec_No
-                break
-                ;;
-        esac
-        read -s -r -n 1 userResponse
+        # Only alow Y/N entry
+        userResponse=${userResponse//[^YyNn]/}
+        while [ -z "$userResponse" ]; do
+            read -s -r -n 1 userResponse
+            userResponse=${userResponse//[^YyNn]/}
+        done
+        echo -n "$userResponse"
+        
+        # User must press Enter to confirm
+        read -s -r -n 1 userConfirm
+        [ $? -eq 0 ] && [ -z "$userConfirm" ] && break
+        
+        # Remove previous response
+        echo -n $'\b'" "$'\b'
+        
+        # Pass new response into loop
+        userResponse=$userConfirm
     done
-    echo "" #link break
+    echo "" # Insert new line
+    
+    # Interpret and return response
+    returnResponse=$ec_Error
+    case $userResponse in
+        Y|y) returnResponse=$ec_Yes ;;
+        N|n) returnResponse=$ec_No ;;
+    esac
     return $returnResponse
+    
 }
 
 # function to manage query of json file
@@ -671,7 +688,16 @@ procedureSelection() {
 
         # Open the published csv file
         $co_openPublishedFile)
-            column -s, -t "$uploadTrackingFileCSV" \
+            #column -s, -t "$uploadTrackingFileCSV" \
+            #    | less --shift=2 \
+            #    --LINE-NUMBERS \
+            #    --chop-long-lines \
+            #    --quit-on-intr \
+            #    || echo ""
+            cat <(echo "Youtube Video"$'\t'"Dailymotion Video"$'\t'"Video Title") \
+                <(jq -r '. | "https://youtu.be/\(.youtubeId)\thttps://dai.ly/\(.dailyMotionId)\t\(.title)"' \
+                "$uploadTrackingFile") \
+                | column -s$'\t' -t \
                 | less --shift=2 \
                 --LINE-NUMBERS \
                 --chop-long-lines \
@@ -779,7 +805,7 @@ helpMenu() {
     echo "$(wrapHelpColumn "      --upload-banner=IMG " "Set the IMG to a image file location that you want uploaded as the accounts Cover Banner")"
     echo ""
     echo "  OPTIONS - for managing current/previous running instance"
-    echo "$(wrapHelpColumn "      --view-published    " "View a list of all published videos recorded.  Press Q to quit, use up/downs to navigate. (Opens the published.csv file - alternatively opened in excel manually)")"
+    echo "$(wrapHelpColumn "      --view-published    " "View a list of all published videos. Press Q to quit, use up/downs to navigate. (Alternatively an Excel csv file is also available in the main folder)")"
     echo "$(wrapHelpColumn "      --watch-log-file    " "Real time log view of an existing (or previously) run instance.  Press Ctrl+C to escape.  This is run by default when first-time-setup is complete and no other command specified")"
     echo "$(wrapHelpColumn "      --kill-existing     " "DEV ONLY.  Used to kill an existing running instance of this script")"
     echo ""
@@ -1511,34 +1537,7 @@ splitVideoRoutine() {
             splitFilename=$videoFilename".part"$i
             splitJson="$tmpSplitDir/$splitFilename".$ytdlInfoExt
             echo "Split video into $splitTitle"
-
-            # Copy json with new info
-            #jq -c \
-            #    --arg vt "$splitTitle" \
-            #    --arg du $minSplitDuration \
-            #    --arg pt $i \
-            #    '.duration = $du, .fulltitle = $vt, .splitPart = $pt' \
-            #    "$videoJson" \
-            #    > "$splitJson"
-            #jq -c \
-            #    ".duration = $minSplitDuration , .fulltitle = $splitTitle , .splitPart = $i" \
-            #    "$videoJson" \
-            #    > "$splitJson"
-            # COULD NOT GET THE ABOVE TO WORK!?
-            newJsonStr=$(jq -c ".duration = $minSplitDuration" "$videoJson")
-            newJsonStr=$(jq -c ".fulltitle = \"$splitTitle\"" <<< "$newJsonStr")
-            jq -c ".splitPart = $i" <<< "$newJsonStr" > "$splitJson"
-            newJsonStr=""
-
-            # Ensure json file was modified
-            newDurationCheck=$(queryJson "duration" "$splitJson") || exit 1
-            if [ "$newDurationCheck" != "$minSplitDuration" ]; then
-                echo "ERROR failed to create json file for split video part %i"
-                rm --recursive $tmpSplitDir
-                recordSkipStats
-                return $ec_ContinueNext
-            fi
-
+        
             # Split the video
             if [ $useFFMPEG = Y ]; then
                 ffmpeg -loglevel error \
@@ -1565,7 +1564,55 @@ splitVideoRoutine() {
                 recordSkipStats
                 return $ec_ContinueNext
             fi
+            
+            # Extract the true duration from the final split video (sometimes not exactly as given)
+            trueSplitDuration=minSplitDuration
+            trueSplitDurationSTR=
+            if [ $useFFMPEG = Y ]; then
+                trueSplitDurationSTR=$( \
+                    ffmpeg -i "$splitFilename.$videoExt" 2>&1 \
+                    | grep --perl-regexp \
+                    --only-matching \
+                    "Duration: \K\d\d:\d\d:\d\d"
+                    )
+            else
+                trueSplitDurationSTR=$( \
+                    avconv -i "$splitFilename.$videoExt" 2>&1 \
+                    | grep --perl-regexp \
+                    --only-matching \
+                    "Duration: \K\d\d:\d\d:\d\d"
+                    )
+            fi
+            [ -z "$trueSplitDurationSTR" ] \
+            || trueSplitDuration=$(timeInSeconds "$trueSplitDurationSTR")
 
+            # Copy json with new info
+            #jq -c \
+            #    --arg vt "$splitTitle" \
+            #    --arg du $trueSplitDuration \
+            #    --arg pt $i \
+            #    '.duration = $du, .fulltitle = $vt, .splitPart = $pt' \
+            #    "$videoJson" \
+            #    > "$splitJson"
+            #jq -c \
+            #    ".duration = $trueSplitDuration , .fulltitle = $splitTitle , .splitPart = $i" \
+            #    "$videoJson" \
+            #    > "$splitJson"
+            # COULD NOT GET THE ABOVE TO WORK!?
+            newJsonStr=$(jq -c ".duration = $trueSplitDuration" "$videoJson")
+            newJsonStr=$(jq -c ".fulltitle = \"$splitTitle\"" <<< "$newJsonStr")
+            jq -c ".splitPart = $i" <<< "$newJsonStr" > "$splitJson"
+            newJsonStr=""
+
+            # Ensure json file was modified
+            newDurationCheck=$(queryJson "duration" "$splitJson") || exit 1
+            if [ "$newDurationCheck" != "$trueSplitDuration" ]; then
+                echo "ERROR failed to create json file for split video part %i"
+                rm --recursive $tmpSplitDir
+                recordSkipStats
+                return $ec_ContinueNext
+            fi
+            
             # Set next split start point
             ((previousSplit+=minSplitDuration))
 
@@ -3062,7 +3109,7 @@ validateSetup() {
 
     # Suggest to rerun the setup
     if [ $setupValidated = N ]; then
-        echo "Alternativly run the command --first-time-setup to start from scratch"
+        echo "Alternatively run the command --first-time-setup to start from scratch"
     fi
 
 }
