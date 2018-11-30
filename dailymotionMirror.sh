@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.4.8
+scriptVersionNo=0.4.9
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -69,7 +69,7 @@ setConstants() {
     dmExpiryToleranceTimeSTR="30 seconds"       # Additional amount of seconds to wait on top of the dailymotion allowance expiry (in order to avoid exceeding limits)
     dmWaitTimeBetweenUploadsSTR="30 seconds"    # The minimum seconds between one upload ending and another beginning
     waitTimeBeforeDownloadingSTR="2 hours"      # How much time to allow the download before the allowance is available
-    waitTimeBeforeUploadingSTR="30 minutes"     # How much time to allow the upload before the allowance is available
+    waitTimeBeforeUploadingSTR="1 hour"         # How much time to allow the upload before the allowance is available
     quitWhenUploadWindowIsWithinSTR="3 hours"   # If the upload window doesn't start till within this time before the next scheduled run, then just quit and let the next scheduled run process it (avoids it starting a new window without using up the allowance of the previous window)
     dmMaxTitleLength=255                        # Max characters for video title
     dmMaxDescription=3000                       # Max characters for video description
@@ -165,7 +165,7 @@ function promptYesNo() {
     
     #Initial Prompt
     echo ""
-    read -s -r -p "$@? [Y/n] " -n 1 userResponse
+    read -s -r -p "@? [Y/n] " -n 1 userResponse
     
     # Check and wait for valid response
     while true; do
@@ -322,7 +322,7 @@ installDependencies() {
         echo "    cron          - used to schedule this script to run automatically"
         echo "    jq            - used to interpret the json formatted returns from dailymotion"
         echo ""
-        promptYesNo "Are you happy to continue"
+        promptYesNo "Are you happy to continue?"
         [ $? -eq $ec_Yes ] || exit
 
         # Install Required Packages
@@ -364,7 +364,7 @@ installDependencies() {
         echo "    youtube-dl    - service for downloading youtube videos"
         echo "    source code:  $ytdlSource"
         echo ""
-        promptYesNo "Are you happy to continue"
+        promptYesNo "Are you happy to continue?"
         [ $? -eq $ec_Yes ] || exit
 
         # Install Youtube-dl
@@ -573,7 +573,13 @@ defaultProcedure() {
 
     # Standard run when not in interactive mode
     if ! [ -t 0 ]; then
+    
+        # Run main procedure with logs saved
         main > "$logFile" 2>&1
+        
+        # If a download failed occured, alert user to attempt an update of youtube-dl
+        howToUpdateIfDownloadFailureOccurred 1>&2
+        
     else
         # Has user specified they want to do an upload?
         echo ""
@@ -583,7 +589,7 @@ defaultProcedure() {
             echo "Running this command will start an upload outside of your set schedule"
             echo "Try using the --edit-schedule command if you want to change when this code runs"
             echo ""
-            promptYesNo "Are you sure you want to start uploading outside of your set schedule"
+            promptYesNo "Are you sure you want to start uploading outside of your set schedule?"
             [ $? -eq $ec_Yes ] || exit
 
             # Start the main procedure
@@ -694,14 +700,26 @@ procedureSelection() {
             #    --chop-long-lines \
             #    --quit-on-intr \
             #    || echo ""
-            cat <(echo "Youtube Video"$'\t'"Dailymotion Video"$'\t'"Video Title") \
-                <(jq -r '. | "https://youtu.be/\(.youtubeId)\thttps://dai.ly/\(.dailyMotionId)\t\(.title)"' \
-                "$uploadTrackingFile") \
+            cat <(echo "Youtube Video"$'\t'"Dailymotion Video"$'\t'"Duration"$'\t'"Video Title") \
+                <(cat <(echo "[{}") \
+                      <(jq --raw-output '",\(.)"' "$uploadTrackingFile") \
+                      <(echo "]") \
+                    | jq --raw-output 'reverse | .[] |
+                        "https://youtu.be/\(.youtubeId
+                        )\thttps://dai.ly/\(.dailyMotionId
+                        )\t\(if .duration==null then "null" else
+                            .duration|tonumber|[./60/60%24, ./60%60, .%60]
+                            |"\(if .[0]>0 then "\(.[0])h " else "" end
+                             )\(if .[1]>0 then "\(.[1])m " else "" end
+                             )\(.[2])s" end
+                        )\t\(.title)"'
+                    2>&1 \
+                  ) \
                 | column -s$'\t' -t \
                 | less --shift=2 \
-                --LINE-NUMBERS \
-                --chop-long-lines \
-                --quit-on-intr \
+                    --LINE-NUMBERS \
+                    --chop-long-lines \
+                    --quit-on-intr \
                 || echo ""
             ;;
 
@@ -891,7 +909,7 @@ killExistingInstance() {
     fi
 
     # Are you sure?
-    promptYesNo "Kill the existing instance running since $existingProcessStart, pid: $existingProcessId"
+    promptYesNo "Kill the existing instance running since $existingProcessStart, pid: ${existingProcessId}?"
     [ $? -eq $ec_Yes ] || exit
 
     # Kill the existing instance
@@ -910,7 +928,7 @@ watchExistingInstance() {
     # Show last log if no existing instance to follow
     if [ $existingProcessId -eq 0 ]; then
         echo "There is no existing instance of this script running!"
-        promptYesNo "Would you like to display the log from the last ran instance"
+        promptYesNo "Would you like to display the log from the last ran instance?"
         [ $? -eq $ec_Yes ] || exit
 
         # Show full log file
@@ -922,7 +940,7 @@ watchExistingInstance() {
         # Confirm if user wants to watch the current log
         printExistingInstanceInfo
         echo ""
-        promptYesNo "Would you like to watch the log of this running instance"
+        promptYesNo "Would you like to watch the log of this running instance?"
         [ $? -eq $ec_Yes ] || exit
 
         # Real time view of the log
@@ -1118,6 +1136,7 @@ getVideoDuration() {
         $ytdl --dump-json -- $videoId > $tmpJson
         if [ $? -ne $ec_Success ]; then
             rm $tmpJson
+            ytdlDownloadErrorOccured=Y
             printError "Failed to downloaded info for video id "$videoId
             [ -t 0 ] && read -s -r -p "Press enter to continue, or Ctrl+C to quit..."
             recordSkipStats
@@ -1249,8 +1268,8 @@ getYouTubeInfoFromJson() {
     youtubeVideoTags=${youtubeVideoTagsList//$'\n'/,}
 
     # Show all details on debug
-    echo "Prcoessing: " $videoTitle
     if [ $optDebug = Y ]; then
+        echo "videoTitle:  " $videoTitle
         echo "Filename:    " $videoFilename
         echo "Upload Date: " $youtubeVideoUploadDate
         echo "Channel:     " $youtubeChannel
@@ -1288,7 +1307,10 @@ processExistingJsons() {
             $ec_Success) ;;
             *) exit $ec_Error ;;
         esac
-
+        
+        # Print video title
+        echo "Processing:  " $videoTitle
+        
         # Process any required video splitting
         splitVideoRoutine
         returnCode=$?
@@ -1301,6 +1323,9 @@ processExistingJsons() {
 
         # Ready for upload
         uploadToDailyMotion
+        
+        # Finish marker
+        echo "***********************************************************"
 
     done
 
@@ -1320,15 +1345,19 @@ getFullListOfVideos() {
 
 }
 
+resetVideoSearchTimeout() {
+    
+    # Add timeout to current time
+    stopVideoDurationSearch=$(($(date +%s)+timeoutVideoDurationSearch))
+    
+}
+
 processNewDownloads() {
 
     # Store all video ids from given youtube playlists/channels/videos
     echo "Connecting to youtube-dl server for video list..."
     getFullListOfVideos > "$videoListFile"
-    if [ $? -ne $ec_Success ]; then
-        printError "Failed to get video list"
-        [ -t 0 ] && read -s -r -p "Press enter to continue, or Ctrl+C to quit..."
-    fi
+    [ $? -ne $ec_Success ] && raiseError "Failed to get video list"
 
     # Compare with .done file to see what's new
     if [ -f "$archiveFile" ]; then
@@ -1348,7 +1377,7 @@ processNewDownloads() {
     fi
 
     # Timeout for how long to spend search searching for video that fits upload allowance
-    stopVideoDurationSearch=$(($(date +%s)+timeoutVideoDurationSearch))
+    resetVideoSearchTimeout
 
     # Download new videos
     #for videoId in $(sed -e s/"youtube "//g "$videoListFile"); do
@@ -1368,6 +1397,9 @@ processNewDownloads() {
             break
         fi
 
+        # Reset variable used by get info from json (this is used later to detect when called by the split routine)
+        ytVideoId=
+        
         # Prep for the upload (check upload limits etc)
         prepareForUpload
         returnCode=$?
@@ -1390,6 +1422,9 @@ processNewDownloads() {
 
         # Get Video Info
         getYouTubeInfoFromJson
+        
+        # Print video title
+        echo "Processing:  " $videoTitle
 
         # Process any required video splitting
         splitVideoRoutine
@@ -1405,7 +1440,10 @@ processNewDownloads() {
         uploadToDailyMotion
 
         # Restart timeout for duration allowance video search
-        stopVideoDurationSearch=$(($(date +%s)+timeoutVideoDurationSearch))
+        resetVideoSearchTimeout
+        
+        # Finish marker
+        echo "***********************************************************"
 
     done
 }
@@ -1424,6 +1462,7 @@ downloadVideo() {
         --download-archive "$archiveFile" \
         -- $videoId
     if [ $? -ne $ec_Success ]; then
+        ytdlDownloadErrorOccured=Y
         printError "Failed to download video id" $videoId
         [ -t 0 ] && read -s -r -p "Press enter to continue, or Ctrl+C to quit..."
         recordSkipStats
@@ -1437,8 +1476,8 @@ downloadVideo() {
     jsonFound=N
     for vj in ./*.$ytdlInfoExt; do
         [ -f "$vj" ] || break
-        ytVideoId=$(queryJson "id" "$vj") || exit 1
-        if [ "$ytVideoId" = "$confirmVideoId" ]; then
+        vjVideoId=$(queryJson "id" "$vj") || exit 1
+        if [ "$vjVideoId" = "$confirmVideoId" ]; then
             jsonFound=Y
             videoJson=$vj
             break
@@ -1450,6 +1489,20 @@ downloadVideo() {
         return $ec_ContinueNext
     fi
 
+}
+
+howToUpdateIfDownloadFailureOccurred() {
+    
+    # Called outside of the log so as it prints to the mailer
+    if [ $ytdlDownloadErrorOccured = Y ]; then
+        echo "There was at least one video that failed to download!  See the log for more details (--watch-log-file)"
+        echo "If this error persists then you should attempt to update the youtube-dl service using the following command:"
+        echo "    sudo $ytdl --update"
+        echo ""
+        echo "Alternatively you could check for a newer version of this script with the following command:"
+        echo "    $scriptFile --edit-urls"
+    fi
+    
 }
 
 markAsDownloaded() {
@@ -1585,23 +1638,24 @@ splitVideoRoutine() {
             fi
             [ -z "$trueSplitDurationSTR" ] \
             || trueSplitDuration=$(timeInSeconds "$trueSplitDurationSTR")
+            echo "DEBUGGING: trueSplitDurationSTR = $trueSplitDurationSTR , trueSplitDuration = $(date +%T -u -d @$trueSplitDuration) ($trueSplitDuration seconds)"
 
             # Copy json with new info
-            #jq -c \
+            #jq --compact-output \
             #    --arg vt "$splitTitle" \
             #    --arg du $trueSplitDuration \
             #    --arg pt $i \
             #    '.duration = $du, .fulltitle = $vt, .splitPart = $pt' \
             #    "$videoJson" \
             #    > "$splitJson"
-            #jq -c \
+            #jq --compact-output \
             #    ".duration = $trueSplitDuration , .fulltitle = $splitTitle , .splitPart = $i" \
             #    "$videoJson" \
             #    > "$splitJson"
             # COULD NOT GET THE ABOVE TO WORK!?
-            newJsonStr=$(jq -c ".duration = $trueSplitDuration" "$videoJson")
-            newJsonStr=$(jq -c ".fulltitle = \"$splitTitle\"" <<< "$newJsonStr")
-            jq -c ".splitPart = $i" <<< "$newJsonStr" > "$splitJson"
+            newJsonStr=$(jq --compact-output ".duration = $trueSplitDuration" "$videoJson")
+            newJsonStr=$(jq --compact-output ".fulltitle = \"$splitTitle\"" <<< "$newJsonStr")
+            jq --compact-output ".splitPart = $i" <<< "$newJsonStr" > "$splitJson"
             newJsonStr=""
 
             # Ensure json file was modified
@@ -1649,7 +1703,7 @@ splitVideoRoutine() {
         #echo "DEBUGGING: totalVideosRemaining=$totalVideosRemaining"
 
         # Restart timeout for duration allowance video search
-        stopVideoDurationSearch=$(($(date +%s)+timeoutVideoDurationSearch))
+        resetVideoSearchTimeout
 
         # Continue to next download
         return $ec_ContinueNext
@@ -1999,6 +2053,7 @@ waitForUploadAllowance() {
         if [ $checkTill -gt $(date +%s) ]; then
             echo "Have to wait for allowance restrictions to pass due to "$(waitReasonDescription $waitingForType)
             checkOnPublishingVideos
+            resetVideoSearchTimeout
         fi
     fi
 
@@ -2017,11 +2072,13 @@ waitForUploadAllowance() {
         sleepTime=$((waitingTime-targetTime))
         sleepTill=$((maxWaitTill-targetTime))
 
-        # Warn on interactive mode
-        [ -t 0 ];
-
+        # Sleep
         echo "Waiting till "$(date -d @$sleepTill)", allowance available at "$(date -d @$maxWaitTill)
+        [ -t 0 ] && echo "(Or press Ctrl+C to quit instead)"
         sleep $sleepTime
+        
+        # Reset timeout after sleep
+        resetVideoSearchTimeout
     fi
 
 }
@@ -2126,7 +2183,8 @@ uploadToDailyMotion() {
     ((totalDurationUploaded+=videoDuration))
 
     # Record upload to json file
-    jq -n -c \
+    jq --null-input \
+        --compact-output \
         --arg ut "$ytVideoId" \
         --arg dm "$dmVideoId" \
         --arg du $videoDuration \
@@ -2874,7 +2932,7 @@ revokeDailyMotionAccess() {
         $'\n'"$(jq "." <<< "$dmServerResponse")"
 
     # Are you sure?
-    promptYesNo "Are you sure you want to logout of $dmUsername"
+    promptYesNo "Are you sure you want to logout of ${dmUsername}?"
     [ $? -eq $ec_Yes ] || exit
 
     # Logout
@@ -2972,7 +3030,7 @@ dailyMotionReLogin() {
     if ! [ -z "$dmRefreshToken" ]; then
         getDailyMotionAccess
         if ! [ -z "$dmAccessToken" ]; then
-            promptYesNo "Access is already granted. Do you want to revoke the existing access and login again"
+            promptYesNo "Access is already granted. Do you want to revoke the existing access and login again?"
             [ $? -eq $ec_Yes ] || exit
             revokeDailyMotionAccess
         fi
@@ -3010,7 +3068,7 @@ firstTimeSetup() {
     if [ -f "$propertiesFile" ]; then
         echo "WARNING .prop file already exists!"
         echo ""
-        promptYesNo "This will revert your settings. Are you sure you want to continue"
+        promptYesNo "This will revert your settings. Are you sure you want to continue?"
         [ $? -eq $ec_Yes ] || exit
 
         # Load the properties file
@@ -3022,7 +3080,7 @@ firstTimeSetup() {
             echo ""
             getDailyMotionAccess
             if ! [ -z "$dmAccessToken" ]; then
-                promptYesNo "Are you sure you want to revoke the existing access rights to dailymotion and setup again"
+                promptYesNo "Are you sure you want to revoke the existing access rights to dailymotion and setup again?"
                 [ $? -eq $ec_Yes ] || exit
                 revokeDailyMotionAccess
             fi
@@ -3296,7 +3354,7 @@ validateProperties() {
             echo ""
             echo "Validation failures found on your .prop file!"
             echo ""
-            promptYesNo "Do you want to review and make changes now"
+            promptYesNo "Do you want to review and make changes now?"
             if ! [ $? -eq $ec_Yes ]; then
                 echo ""
                 echo "Run with the command --edit-prop to make changes later"
@@ -3320,7 +3378,7 @@ createUrlsFile() {
     # Backup existing file
     if [ -f "$urlsFile" ]; then
         echo ".urls file already exists! $urlsFile"
-        promptYesNo "This will overwrite your .urls files.  Would you like to skip this step"
+        promptYesNo "This will overwrite your .urls files.  Would you like to skip this step?"
         [ $? -eq $ec_Yes ] && return 0
         echo ""
         echo "creating backup (.bku) copy just encase you change your mind..."
@@ -3363,7 +3421,7 @@ createPropFile() {
     # Backup existing file
     if [ -f "$propertiesFile" ]; then
         echo ".prop file already exists! $propertiesFile"
-        promptYesNo "This will overwrite your .prop file. Would you like to skip this step"
+        promptYesNo "This will overwrite your .prop file. Would you like to skip this step?"
         [ $? -eq $ec_Yes ] && return 0
         echo "creating backup (.bku) copy just encase you change your mind..."
         cp "$propertiesFile" "$propertiesFile.bku"
@@ -3635,7 +3693,7 @@ updateSourceCode() {
 
     # Are you sure?
     echo "Current version is $scriptVersionNo"
-    promptYesNo "Are you sure you want update this script"
+    promptYesNo "Are you sure you want update this script?"
     [ $? -eq $ec_Yes ] || exit
 
     # Download latest source code
