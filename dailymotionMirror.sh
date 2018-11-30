@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.4.9
+scriptVersionNo=0.5.0
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -35,7 +35,9 @@ setConstants() {
     scriptName=${scriptFile%.*}
 
     # Files and directories
-    selfSourceCode="https://raw.githubusercontent.com/skytunnel/dailymotionMirror/master/dailymotionMirror.sh"
+    selfSourceCodeHost="https://raw.githubusercontent.com/skytunnel/dailymotionMirror"
+    selfSourceCodeBranch=master
+    selfSourceCodeFile="dailymotionMirror.sh"
     ytdlSource="https://yt-dl.org/downloads/latest/youtube-dl"
     ytdl="/usr/local/bin/youtube-dl"
     ytdlInfoExt="info.json"
@@ -165,7 +167,7 @@ function promptYesNo() {
     
     #Initial Prompt
     echo ""
-    read -s -r -p "@? [Y/n] " -n 1 userResponse
+    read -s -r -p "$@ [Y/n] " -n 1 userResponse
     
     # Check and wait for valid response
     while true; do
@@ -427,6 +429,7 @@ inputArguments() {
     optUploadBannerImage=
     optMarkDoneID=
     optSyncDailyMotionID=
+    optUpdateGitBranch=
 
     # Loop Program's Input Agruments
     for i in $arguments; do
@@ -525,6 +528,13 @@ inputArguments() {
             setRunProcedure $co_updateSourceCode
             optSkipStartupChecks=Y
             ;;
+            
+        --update=*)
+            setRunProcedure $co_updateSourceCode
+            optUpdateGitBranch="${i#*=}"
+            optSkipStartupChecks=Y
+            ;;
+            
         --show-dm-uploads)
             setRunProcedure $co_showUploadsToday
             ;;
@@ -566,6 +576,7 @@ inputArguments() {
         echo "optUploadBannerImage:     " $optUploadBannerImage
         echo "optMarkDoneID:            " $optMarkDoneID
         echo "optSyncDailyMotionID:     " $optSyncDailyMotionID
+        echo "optUpdateGitBranch:       " $optUpdateGitBranch
     fi
 }
 
@@ -694,33 +705,7 @@ procedureSelection() {
 
         # Open the published csv file
         $co_openPublishedFile)
-            #column -s, -t "$uploadTrackingFileCSV" \
-            #    | less --shift=2 \
-            #    --LINE-NUMBERS \
-            #    --chop-long-lines \
-            #    --quit-on-intr \
-            #    || echo ""
-            cat <(echo "Youtube Video"$'\t'"Dailymotion Video"$'\t'"Duration"$'\t'"Video Title") \
-                <(cat <(echo "[{}") \
-                      <(jq --raw-output '",\(.)"' "$uploadTrackingFile") \
-                      <(echo "]") \
-                    | jq --raw-output 'reverse | .[] |
-                        "https://youtu.be/\(.youtubeId
-                        )\thttps://dai.ly/\(.dailyMotionId
-                        )\t\(if .duration==null then "null" else
-                            .duration|tonumber|[./60/60%24, ./60%60, .%60]
-                            |"\(if .[0]>0 then "\(.[0])h " else "" end
-                             )\(if .[1]>0 then "\(.[1])m " else "" end
-                             )\(.[2])s" end
-                        )\t\(.title)"'
-                    2>&1 \
-                  ) \
-                | column -s$'\t' -t \
-                | less --shift=2 \
-                    --LINE-NUMBERS \
-                    --chop-long-lines \
-                    --quit-on-intr \
-                || echo ""
+            tablePrintPublishedJson
             ;;
 
         # Watch the log file of an existing instance
@@ -829,12 +814,13 @@ helpMenu() {
     echo ""
     echo "  OPTIONS - for debugging issues"
     echo "$(wrapHelpColumn "      --update            " "Download the latest release of this script and replace the current version with it.  Requires root")"
+    #echo "$(wrapHelpColumn "      --update[=BRANCH]   " "Download the latest release of this script (from the specified git branch) and replace the current version with it.  Requires root")"
     echo "$(wrapHelpColumn "      --show-dm-uploads   " "Query with dailymotion what videos where uploaded in last 24 hours, and compare to local tracking file (for debugging why limits might have exceeded)")"
     echo "$(wrapHelpColumn "      --sync-dm-uploads   " "Same as above, but outputs the dailymotion results to the local allowance tracking file for use during uploads.  Use this if you manually uploaded a video and need this script to account for it when uploading more.  DO NOT USE if you are maintaining mutliple dailymotion accounts on the same internet connection.")"
-    echo "$(wrapHelpColumn "      --mark-done=[ID]    " "Mark the given youtube [ID] as downloaded")"
+    echo "$(wrapHelpColumn "      --mark-done=ID      " "Mark the given youtube [ID] as downloaded")"
     echo "$(wrapHelpColumn "      --mark-done=ALL     " "Mark all videos in the .urls file as downloaed (e.g. only upload new videos)")"
     echo "$(wrapHelpColumn "      --mark-done=SYNC    " "Mark all videos in the published.json file as downloaded (e.g. to fix problems that might happen)")"
-    echo "$(wrapHelpColumn "      --sync-dm-id=[ID]   " "Sync the current details of the given dailymotion video [ID] with the original youtube video")"
+    echo "$(wrapHelpColumn "      --sync-dm-id=ID     " "Sync the current details of the given dailymotion video [ID] with the original youtube video")"
     #echo "$(wrapHelpColumn "      --check-time-offset " "(debugging purposes). Compare the local time to the time on dailymotion servers.  Useful you are exceeding allowances and might be due to clock setting differences")"
     #echo "$(wrapHelpColumn "      --dev-test-code     " "DEV ONLY. Run whatever code is in the test procedure")"
     echo ""
@@ -868,20 +854,21 @@ getExistingInstance() {
         existingProcessStart=
     fi
 
+    # Info on Locked process
+    lockedProccessId=0
+    [ -f "$instanceLockFile" ] && \
+        lockedProccessId=$(head -1 "$instanceLockFile")
+    
 }
 
 printExistingInstanceInfo() {
-    echo "$scriptFile has already been running since $existingProcessStart (pid: $existingProcessId )"
+    echo -n "$scriptFile has already been running since $existingProcessStart (pid: $existingProcessId )"
 }
 
 exitOnExistingInstance() {
 
     # Info on existing instance
     getExistingInstance
-
-    # Info on Locked process
-    [ -f "$instanceLockFile" ] && lockedProccessId=$(head -1 "$instanceLockFile")
-    [ -z "$lockedProccessId" ] && lockedProccessId=0
 
     # If it's the same as the locked instance, then exit
     if [ $lockedProccessId -gt 0 ] && [ $lockedProccessId -eq $existingProcessId ]; then
@@ -914,6 +901,13 @@ killExistingInstance() {
 
     # Kill the existing instance
     kill $existingProcessId
+    
+    # Info if didn't match the lock file
+    if [ $existingProcessId -ne $lockedProccessId ]; then
+        echo ""
+        echo "Note that the killed process did not match the locked process id $lockedProccessId"
+        echo "You may need to run the kill command again"
+    fi
 
 }
 
@@ -925,34 +919,49 @@ watchExistingInstance() {
     # Info on existing instance
     getExistingInstance
 
-    # Show last log if no existing instance to follow
-    if [ $existingProcessId -eq 0 ]; then
-        echo "There is no existing instance of this script running!"
-        promptYesNo "Would you like to display the log from the last ran instance?"
+    # Print gap
+    echo ""
+    
+    # Conditions to follow the log file
+    if [ $lockedProccessId -gt 0 ]; then
+        
+        # Inform user of existing process info
+        [ $existingProcessId -eq $lockedProccessId ] && \
+            printExistingInstanceInfo
+        echo ""
+        promptYesNo "Would you like to watch the log of the running instance?"
         [ $? -eq $ec_Yes ] || exit
-
-        # Show full log file
-        echo ""
-        tail --lines=+1 "$logFile"
-
-    else
-
-        # Confirm if user wants to watch the current log
-        printExistingInstanceInfo
-        echo ""
-        promptYesNo "Would you like to watch the log of this running instance?"
-        [ $? -eq $ec_Yes ] || exit
-
-        # Real time view of the log
-        echo ""
-        tail --follow --pid=$existingProcessId --lines=+1 "$logFile"
-
-        # Confirm complete
-        echo ""
-        echo ""
-        echo "Stopped watching the log because the process ended"
-
+        
+        # Check if process is still running
+        if ps --pid $lockedProccessId > /dev/null ; then
+            
+            # Follow the log till process ends
+            tail --follow --pid=$lockedProccessId --lines=+1 "$logFile"
+            
+            # Confirm complete
+            echo ""
+            echo ""
+            echo "Stopped watching the log because the process ended"
+            
+            # Exit
+            return 0
+        
+        else 
+        
+            # Print info if user took too long to respond
+            echo "Process already stopped!"
+            echo ""
+        
+        fi
     fi
+    
+    # Inform user there is nothing running
+    echo "There is no existing instance of this script running!"
+    promptYesNo "Would you like to display the log from the last ran instance?"
+    [ $? -eq $ec_Yes ] || exit
+    
+    # Else just show the last log file
+    tail --lines=+1 "$logFile"
 
 }
 
@@ -1340,7 +1349,8 @@ getFullListOfVideos() {
         --flat-playlist \
         ${youtubePlaylistReverseOpt:+ --playlist-reverse} \
         --batch-file "$urlsFile" \
-        | jq --raw-output '"youtube " + .id'
+        | jq --raw-output \
+        '"youtube \(.id)"'
     # (This has been tested that to show that it excludes active live streams)
 
 }
@@ -1519,7 +1529,7 @@ markAsDownloaded() {
         "SYNC")
             echo "Syncing with uploads .json file"
             jq --raw-output \
-                '"youtube " + .youtubeId' \
+                '"youtube \(.youtubeId)"' \
                 "$uploadTrackingFile" \
                 > "$archiveFile"
             ;;
@@ -1641,22 +1651,19 @@ splitVideoRoutine() {
             echo "DEBUGGING: trueSplitDurationSTR = $trueSplitDurationSTR , trueSplitDuration = $(date +%T -u -d @$trueSplitDuration) ($trueSplitDuration seconds)"
 
             # Copy json with new info
-            #jq --compact-output \
-            #    --arg vt "$splitTitle" \
-            #    --arg du $trueSplitDuration \
-            #    --arg pt $i \
-            #    '.duration = $du, .fulltitle = $vt, .splitPart = $pt' \
-            #    "$videoJson" \
-            #    > "$splitJson"
-            #jq --compact-output \
-            #    ".duration = $trueSplitDuration , .fulltitle = $splitTitle , .splitPart = $i" \
-            #    "$videoJson" \
-            #    > "$splitJson"
-            # COULD NOT GET THE ABOVE TO WORK!?
-            newJsonStr=$(jq --compact-output ".duration = $trueSplitDuration" "$videoJson")
-            newJsonStr=$(jq --compact-output ".fulltitle = \"$splitTitle\"" <<< "$newJsonStr")
-            jq --compact-output ".splitPart = $i" <<< "$newJsonStr" > "$splitJson"
-            newJsonStr=""
+            jq --compact-output \
+                --arg vt "$splitTitle" \
+                --arg du $trueSplitDuration \
+                --arg pt $i '
+                    .fulltitle = $vt |
+                    .duration = $du |
+                    .splitPart = $pt' \
+                "$videoJson" \
+                > "$splitJson"
+            #newJsonStr=$(jq --compact-output ".duration = $trueSplitDuration" "$videoJson")
+            #newJsonStr=$(jq --compact-output ".fulltitle = \"$splitTitle\"" <<< "$newJsonStr")
+            #jq --compact-output ".splitPart = $i" <<< "$newJsonStr" > "$splitJson"
+            #newJsonStr=""
 
             # Ensure json file was modified
             newDurationCheck=$(queryJson "duration" "$splitJson") || exit 1
@@ -1725,6 +1732,15 @@ prepareForUpload() {
         fi
     fi
 
+    # Quit when the targetted remaining duration has been reached
+    if ! [ -z $remainingDurationMAX ]; then
+        if [ $remainingDurationMAX -le $targetRemainingDuration ]; then
+            echo "Reached the current window's targetted upload allowance (i.e. targetRemainingDuration)"
+            echo "Quitting..."
+            return $ec_BreakLoop
+        fi
+    fi
+    
     # Exit if the upload window has ended
     if [ $(date +%s) -gt $uploadWindowEnd ]; then
         echo "Upload Window has ended.  Quitting..."
@@ -1767,24 +1783,19 @@ prepareForUpload() {
     fi
 
     # Skip if greater than max duration by window end
-    if [ $videoDuration -gt $remainingDurationMAX ]; then
-        echo "Skipping video ID $videoId, duration is "$(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
-        if [ $videoDuration -lt $minSkippedDuration ] || [ $minSkippedDuration -eq 0 ]; then
-            minSkippedDuration=$videoDuration
+    if ! [ -z $remainingDurationMAX ]; then
+        if [ $videoDuration -gt $remainingDurationMAX ]; then
+            echo "Skipping video ID $videoId, duration is "$(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
+            if [ $videoDuration -lt $minSkippedDuration ] || [ $minSkippedDuration -eq 0 ]; then
+                minSkippedDuration=$videoDuration
+            fi
+            recordSkipStats
+            return $ec_ContinueNext
         fi
-        recordSkipStats
-        return $ec_ContinueNext
     fi
 
     # Get Daily Motion Upload Limits
     dmGetAllowance
-
-    # Quit when the targetted remaining duration has been reached
-    if [ $remainingDurationMAX -le $targetRemainingDuration ]; then
-        echo "Reached the current window's targetted upload allowance (i.e. targetRemainingDuration)"
-        echo "Quitting..."
-        return $ec_BreakLoop
-    fi
 
     # If you have to wait beyond the upload window, then skip
     timeTillWindowEnds=$((uploadWindowEnd-$(date +%s)))
@@ -1816,7 +1827,7 @@ prepareForUpload() {
     # If you have to wait close to the next scheduled start, then let that run pick up this video
     timeTillQuit=$((dmUploadQuitingTime-$(date +%s)))
     if [ $waitingTime -gt $timeTillQuit ]; then
-        echo "Video should be picked up by next scheduled run..."
+        echo "Cannot upload video within the time remaining for the current schedule"
         recordSkipStats
 
         # Unless the target hasn't been reached yet
@@ -2133,9 +2144,7 @@ uploadToDailyMotion() {
     if [ "$dmVideoId" = "null" ]; then
 
         # Print full details of the error
-        echo "Failed post the video to the account!"
-        echo "Response from server:"
-        echo "$(jq "." <<< "$dmServerResponse")"
+        echo "Failed post the video to the account!$(dmResponsePrettyPrint)"
 
         # Suspend account for 24hours if limits exceeded
         # https://faq.dailymotion.com/hc/en-us/articles/115009030568-Upload-policies
@@ -2173,31 +2182,32 @@ uploadToDailyMotion() {
     dmPublishedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
     if [ "$dmPublishedVideoId" = "null" ]; then
         # Print the error for review
-        raiseError "Failed publish the video ID $dmVideoId !"\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Failed publish the video ID $dmVideoId !$(dmResponsePrettyPrint)"
     fi
 
     # Update upload statistics
     ((totalVideosUploaded++))
     ((totalDurationUploaded+=videoDuration))
+    ((remainingDurationMAX-=videoDuration))
 
     # Record upload to json file
+    mirrorDate=$(date +"%d-%b-%y %R")
     jq --null-input \
         --compact-output \
+        --arg md "$mirrorDate" \
         --arg ut "$ytVideoId" \
         --arg dm "$dmVideoId" \
         --arg du $videoDuration \
         --arg pt "$videoPart" \
         --arg vt "$videoTitle" \
-        '{youtubeId: $ut, dailyMotionId: $dm, duration: $du, part: $pt, title: $vt}' \
+        '{mirrorDate: $md, youtubeId: $ut, dailyMotionId: $dm, duration: $du, part: $pt, title: $vt}' \
         >> "$uploadTrackingFile"
 
     # Record upload to csv file
     if ! [ -f "$uploadTrackingFileCSV" ]; then
-        echo "YouTube_ID,Dailymotion_ID,Duration,Part_No,Title" > "$uploadTrackingFileCSV"
+        echo "Mirror_Date,YouTube_ID,Dailymotion_ID,Duration,Part_No,Title" > "$uploadTrackingFileCSV"
     fi
-    echo "${ytVideoId},${dmVideoId},${videoDuration},${videoPart},\"${videoTitle}\"" >> "$uploadTrackingFileCSV"
+    echo "${mirrorDate},${ytVideoId},${dmVideoId},${videoDuration},${videoPart},\"${videoTitle}\"" >> "$uploadTrackingFileCSV"
 
     # Delete/Keep local files
     if [ $keepDownloadedVideos = Y ] && [ $(isNumeric $videoPart) = N ]; then
@@ -2213,6 +2223,40 @@ uploadToDailyMotion() {
     dmServerResponse=$(dmGetFieldValue video/$dmVideoId url)
     dmVideoUrl=$(queryJson "url" "$dmServerResponse") || exit 1
     addLinkToPrevVideoPart
+
+}
+
+tablePrintPublishedJson() {
+    
+    # Initial attempt at printing the csv file
+    #column -s, -t "$uploadTrackingFileCSV" \
+    #    | less --shift=2 \
+    #    --LINE-NUMBERS \
+    #    --chop-long-lines \
+    #    --quit-on-intr \
+    #    || echo ""
+    
+    # Print the json file in table layout
+    cat <(echo $'Mirror Date\tYoutube Video\tDailymotion Video\tDuration\tVideo Title') \
+        <(jq --raw-output --slurp \
+            'reverse | .[] |
+            "\(.mirrorDate
+            )\thttps://youtu.be/\(.youtubeId
+            )\thttps://dai.ly/\(.dailyMotionId
+            )\t\(if .duration==null then "null" else
+                .duration|tonumber|[./60/60%24, ./60%60, .%60]
+                |"\(if .[0]>0 then "\(.[0])h " else "" end
+                 )\(if .[1]>0 then "\(.[1])m " else "" end
+                 )\(.[2])s" end
+            )\t\(.title)"' \
+            "$uploadTrackingFile"
+          2>&1 ) \
+        | column -s$'\t' -t \
+        | less --shift=2 \
+            --LINE-NUMBERS \
+            --chop-long-lines \
+            --quit-on-intr \
+        || echo ""
 
 }
 
@@ -2310,9 +2354,7 @@ waitForPublish() {
     dmServerResponse=$(dmGetFieldValue video/$dmVideoId "$videoFields")
     dmIdCheck=$(queryJson "id" "$dmServerResponse") || exit 1
     if [ "dmIdCheck" = "null" ]; then
-        raiseError "Invalid video ID $dmVideoId !"\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Invalid video ID ${dmVideoId}! $(dmResponsePrettyPrint)"
     fi
 
     # Wait for video to finish encoding/publishing
@@ -2361,7 +2403,9 @@ addLinkToPrevVideoPart() {
     echo "Editing Previous part with link to this part..."
     prevPart=$((videoPart-1))
     prevPublishedPart=$(jq \
-        ". | select(.youtubeId == \"$ytVideoId\" and .part == \"$prevPart\")" \
+        --arg ut "$ytVideoId" \
+        --arg pt "$prevPart" \
+        'select(.youtubeId == $ut and .part == $pt)' \
         "$uploadTrackingFile"
     )
     prevDmId=$(queryJson "dailyMotionId" "$prevPublishedPart") || exit 1
@@ -2374,9 +2418,7 @@ addLinkToPrevVideoPart() {
         [ $prevDmStatus != "processing" ] && \
         [ $prevDmStatus != "ready" ] && \
         [ $prevDmStatus != "published" ]; then
-            raiseError "Previous Part id $prevDmId has an unexpected status of $prevDmStatus !?"\
-                $'\n'"Response from server:"\
-                $'\n'"$(jq "." <<< "$dmServerResponse")"
+            raiseError "Previous Part id $prevDmId has an unexpected status of ${prevDmStatus}!? $(dmResponsePrettyPrint)"
     fi
 
     # Exit if next part has already been set
@@ -2399,9 +2441,7 @@ addLinkToPrevVideoPart() {
     )
     dmEditedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
     if [ "$dmEditedVideoId" = "null" ]; then
-        raiseError "Failed to update previous part ID $prevDmId !"\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Failed to update previous part ID ${prevDmId}! $(dmResponsePrettyPrint)"
     fi
     echo "Successfully edited video id $dmEditedVideoId"
 
@@ -2423,9 +2463,7 @@ dmUploadFile() {
     dmServerResponse=$(dmGetFieldValue file/upload)
     dmUploadUrl=$(queryJson "upload_url" "$dmServerResponse") || exit 1
     if [ "$dmUploadUrl" = "null" ]; then
-        raiseError "Unable to get an upload url for dailymotion.com!"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Unable to get an upload url for dailymotion.com! $(dmResponsePrettyPrint)"
     fi
 
     # Upload the file
@@ -2436,9 +2474,7 @@ dmUploadFile() {
     dmPostedUrl=$(queryJson "url" "$dmServerResponse") || exit 1
     if [ "$dmPostedUrl" = "null" ]; then
         dmPostedUrl=
-        raiseError "Failed to upload the file to dailymotion.com!"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Failed to upload the file to dailymotion.com! $(dmResponsePrettyPrint)"
     fi
 
 }
@@ -2467,9 +2503,7 @@ dmChangeUserField() {
     dmServerResponse=$(dmGetFieldValue me $changeFieldName)
     currentFieldValue=$(queryJson "$changeFieldName" "$dmServerResponse") || exit 1
     if [ "$currentFieldValue" = "null" ]; then
-        raiseError "Unexpected response!?  Ensure field name '$changeFieldName' is valid"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Unexpected response!?  Ensure field name '$changeFieldName' is valid $(dmResponsePrettyPrint)"
     fi
 
     # Confirm current field name
@@ -2493,18 +2527,14 @@ dmChangeUserField() {
         )
     dmResponseID=$(queryJson "id" "$dmServerResponse") || exit 1
     if [ "$dmResponseID" = "null" ]; then
-        raiseError "Unexpected response!?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Unexpected response!? $(dmResponsePrettyPrint)"
     fi
 
     # Check if sucessful
     dmServerResponse=$(dmGetFieldValue me $changeFieldName)
     replacedFieldValue=$(queryJson "$changeFieldName" "$dmServerResponse") || exit 1
     if [ "$replacedFieldValue" = "null" ]; then
-        raiseError "Unexpected response!?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Unexpected response!? $(dmResponsePrettyPrint)"
     fi
     if [ "$replacedFieldValue" = "$newFieldValue" ]; then
         echo "Sucessfully changed $changeFieldName to $replacedFieldValue"
@@ -2545,9 +2575,7 @@ uploadChannelArt() {
 
     dmCheckAcctId=$(queryJson "id" "$dmServerResponse") || exit 1
     if [ "$dmCheckAcctId" = "null" ]; then
-        raiseError "Failed upload account artwork!"\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Failed upload account artwork! $(dmResponsePrettyPrint)"
     fi
 
     # Success
@@ -2560,7 +2588,8 @@ syncVideoDetails() {
     # Ensure video ID has been uploaded previously
     uploadInfoJson=$(jq \
         --compact-output \
-        ". | select(.dailyMotionId == \"$optSyncDailyMotionID\")" \
+        --arg dm "$optSyncDailyMotionID" \
+        'select(.dailyMotionId == $dm)' \
         "$uploadTrackingFile"
     )
     [ -z "$uploadInfoJson" ] \
@@ -2576,15 +2605,14 @@ syncVideoDetails() {
     # Extract dailymoton video details
     initializeDailyMotion
     videoFields="status,published,channel,title,explicit,duration,country,private,password,url,thumbnail_url,player_next_videos,tags,description"
-    dmVideoJson=$(dmGetFieldValue video/$dmVideoId "$videoFields")
-    dmConfirmedVideoId=$(queryJson "id" "$dmVideoJson") || exit 1
+    dmServerResponse=$(dmGetFieldValue video/$dmVideoId "$videoFields")
+    dmConfirmedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
     [ "$dmConfirmedVideoId" = "null" ] \
-        && raiseError "Could not get video from dailymotion!? Response:" \
-        $'\n'"$(jq "." <<< "$dmVideoJson")"
+        && raiseError "Could not get video from dailymotion!? $(dmResponsePrettyPrint)"
 
     # Print existing details
     echo "dailymotion.com video info before change: "
-    echo "$(jq "." <<< "$dmVideoJson")"
+    echo "$(jq '.' <<< "$dmServerResponse")"
 
     # Download Youtube json file
     echo "Connecting to youtube-dl to get video info..."
@@ -2598,7 +2626,7 @@ syncVideoDetails() {
     # Update fields to account for video split parts
     videoPart=$(queryJson "part" "$uploadInfoJson") || exit 1
     if [ $(isNumeric $videoPart) = Y ]; then
-        dmVideoUrl=$(queryJson "url" "$dmVideoJson") || exit 1
+        dmVideoUrl=$(queryJson "url" "$dmServerResponse") || exit 1
         videoTitle=$(queryJson "title" "$uploadInfoJson") || exit 1
         uploadVideoWithNextVideoIdPlayback=
     fi
@@ -2608,9 +2636,7 @@ syncVideoDetails() {
     dmServerResponse=$(publishVideo)
     dmPublishedVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
     if [ "$dmPublishedVideoId" = "null" ]; then
-        raiseError "Failed edit the video ID $dmVideoId !"\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Failed edit the video ID ${dmVideoId}! $(dmResponsePrettyPrint)"
     fi
 
     # Update previous part as well
@@ -2725,11 +2751,15 @@ testDailyMotionAvailablity() {
     )
     dmMessageResponse=$(queryJson "message" "$dmServerResponse") || exit 1
     if [ "$dmMessageResponse" != "$testAvailablilty" ]; then
-        raiseError "Could not get valid response from dailymotion.com!?  Website may not be available."\
-            $'\n'"Response from server:"\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Could not get valid response from dailymotion.com!?  Website may not be available. $(dmResponsePrettyPrint)"
     fi
 
+}
+
+dmResponsePrettyPrint() {
+    echo ""
+    echo "Response from server:"
+    jq '.' <<< "$dmServerResponse"
 }
 
 getDailyMotionAccess() {
@@ -2766,9 +2796,7 @@ getDailyMotionAccess() {
     # Get Access Token
     dmAccessToken=$(queryJson "access_token" "$dmServerResponse") || exit 1
     if [ "$dmAccessToken" = "null" ]; then
-        echo "Unable to get upload access to dailymotion.com!"
-        echo "Response from server:"
-        echo "$(jq "." <<< "$dmServerResponse")"
+        echo "Unable to get upload access to dailymotion.com! $(dmResponsePrettyPrint)"
         echo "Prompting for login info..."
 
         # Get new refresh token
@@ -2795,8 +2823,7 @@ getUserInfo() {
     dmAccountId=$(queryJson "id" "$dmServerResponse") || exit 1
     dmAccountName=$(queryJson "screenname" "$dmServerResponse") || exit 1
     [ "$dmAccountName" = "null" ] \
-        && raiseError "Unable to get details of the upload user?  Server Response:"\
-        $'\n'"$(jq "." <<< "$dmServerResponse")"
+        && raiseError "Unable to get details of the upload user? $(dmResponsePrettyPrint)"
 
     # Check the Account is Active
     dmUserStatus=$(queryJson "status" "$dmServerResponse") || exit 1
@@ -2864,9 +2891,7 @@ checkServerTimeOffset() {
     # Check for Error
     dmPlaylistID=$(queryJson "id" "$dmServerResponse") || exit 1
     if [ "$dmPlaylistID" = "null" ]; then
-        raiseError "Failed to create playlist!?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Failed to create playlist!? $(dmResponsePrettyPrint)"
     fi
 
     # Get created time of playlist (done on loop as it did once fail to read)
@@ -2881,9 +2906,7 @@ checkServerTimeOffset() {
     # Query the time from the response
     dmTime=$(queryJson "created_time" "$dmServerResponse") || exit 1
     if [ "$dmTime" = "null" ]; then
-        raiseError "Failed to read playlist id $dmPlaylistID ?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Failed to read playlist id ${dmPlaylistID}? $(dmResponsePrettyPrint)"
     fi
 
     # Show the difference
@@ -2907,9 +2930,7 @@ checkServerTimeOffset() {
 
     # Print Error if failed to delete
     if ! [ "$dmDeleteError" = "null" ]; then
-        raiseError "Failed to delete playlist id $dmPlaylistID ?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Failed to delete playlist id ${dmPlaylistID}? $(dmResponsePrettyPrint)"
     fi
 
 }
@@ -2928,8 +2949,7 @@ revokeDailyMotionAccess() {
     dmServerResponse=$(dmGetFieldValue me username)
     dmUsername=$(queryJson "username" "$dmServerResponse") || exit 1
     [ "$dmUsername" = "null" ] \
-        && raiseError "Unable to get details of the user?  Server Response:"\
-        $'\n'"$(jq "." <<< "$dmServerResponse")"
+        && raiseError "Unable to get details of the user? $(dmResponsePrettyPrint)"
 
     # Are you sure?
     promptYesNo "Are you sure you want to logout of ${dmUsername}?"
@@ -2944,9 +2964,7 @@ revokeDailyMotionAccess() {
     # Check for error
     dmLogoutError=$(queryJson "error" "$dmServerResponse") || exit 1
     if ! [ "$dmLogoutError" = "null" ]; then
-        raiseError "Failed to logout of account!?"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Failed to logout of account!? $(dmResponsePrettyPrint)"
     fi
 
     # Remove refresh token
@@ -3002,9 +3020,7 @@ grantDailyMotionAccess() {
     dmPassword=
     dmRefreshToken=$(queryJson "refresh_token" "$dmServerResponse") || exit 1
     if [ "$dmRefreshToken" = "null" ]; then
-        raiseError "Unable to get upload access to dailymotion.com!"\
-            $'\n'"Response from server: "\
-            $'\n'"$(jq "." <<< "$dmServerResponse")"
+        raiseError "Unable to get upload access to dailymotion.com! $(dmResponsePrettyPrint)"
     fi
 
     # Save keys and refresh token to properties file
@@ -3441,6 +3457,7 @@ editPropFile() {
     nano --syntax=awk --mouse "$propertiesFile"
 
     # Load and Validate the properties file
+    echo "Validating any changes..."
     loadPropertiesFile
 
 }
@@ -3690,15 +3707,29 @@ updateSourceCode() {
 
     # Sudo Access required
     rootRequired
+    
+    # Print current version
+    echo "Current version is $scriptVersionNo"
+    
+    # Use default branch?
+    if [ -z "$optUpdateGitBranch" ]; then
+        optUpdateGitBranch=$selfSourceCodeBranch
+    else
+        echo "You have selected to update to the '$optUpdateGitBranch' branch"
+        echo "Please note that this is not the offical branch (update at your own risk!)"
+    fi
 
     # Are you sure?
-    echo "Current version is $scriptVersionNo"
+    echo ""
     promptYesNo "Are you sure you want update this script?"
     [ $? -eq $ec_Yes ] || exit
 
+    # Compile source URL
+    selfSourceCodeURL="$selfSourceCodeHost/$optUpdateGitBranch/$selfSourceCodeFile"
+    
     # Download latest source code
     tmpFile=$(mktemp)
-    wget --no-cache $selfSourceCode --output-document $tmpFile
+    wget --no-cache $selfSourceCodeURL --output-document $tmpFile
     if [ $? -ne $ec_Success ]; then
         raiseError "Failed to download the source code!?"
     fi
@@ -3718,7 +3749,9 @@ updateSourceCode() {
 
     # Cancel if new version number is not greater
     if [ "$scriptVersionNo" \> "$newVersionNumber" ]; then
-        raiseError "You are on a higher version than the latest public release!? Latest version is $newVersionNumber"
+        echo "You are on a higher version than the latest $optUpdateGitBranch release!? Latest version is $newVersionNumber"
+        promptYesNo "Are you sure you want downgrade this script?"
+        [ $? -eq $ec_Yes ] || exit
     fi
 
     # Backup copy
