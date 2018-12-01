@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.5.0
+scriptVersionNo=0.5.1
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -528,13 +528,11 @@ inputArguments() {
             setRunProcedure $co_updateSourceCode
             optSkipStartupChecks=Y
             ;;
-            
         --update=*)
             setRunProcedure $co_updateSourceCode
             optUpdateGitBranch="${i#*=}"
             optSkipStartupChecks=Y
             ;;
-            
         --show-dm-uploads)
             setRunProcedure $co_showUploadsToday
             ;;
@@ -977,7 +975,7 @@ main() {
 
     # Record start time
     mainStartTime=$(date +%s)
-    echo "Start date time:                      " $(date +"%F %T")
+    echo "Start date time:                " $(date +"%F %T")
 
     # Check required files exist
     [ -f "$urlsFile" ] || raiseError "urls file not found! $urlsFile"
@@ -996,12 +994,12 @@ main() {
         fi
     fi
     uploadWindowEnd=$((uploadWindowStart+dmDurationAllowanceExpiry))
-    echo "Upload window opens at:               " $(date -d @$uploadWindowStart)
-    echo "Upload window closes at:              " $(date -d @$uploadWindowEnd)
+    echo "Upload window opens at:         " $(date -d @$uploadWindowStart)
+    echo "Upload window closes at:        " $(date -d @$uploadWindowEnd)
 
     # Determine time to quit (before next schedule starts)
     dmUploadQuitingTime=$((mainStartTime+dmDurationAllowanceExpiry-300)) # 5 minute tolerance for startup time
-    echo "Quit time before next schedule:       " $(date -d @$dmUploadQuitingTime)
+    echo "Quit time before next schedule: " $(date -d @$dmUploadQuitingTime)
     echo ""
 
     # Quit when upload window doesn't open till within the set time of the next schedule
@@ -1012,7 +1010,6 @@ main() {
     fi
 
     # Initial Variables
-    minSkippedDuration=0
     startStatistics
 
     # Get connected to dailymotion
@@ -1125,7 +1122,10 @@ printStatistics() {
 
 getVideoDuration() {
 
-    # Default
+    # Defaults
+    cachedInfo=
+    cachedVideoDuration=0
+    cachedUploadDate=
     videoDuration=0
 
     # Query Cache file for video ID
@@ -1136,39 +1136,55 @@ getVideoDuration() {
     # Take duration from cache
     if ! [ -z "$cachedInfo" ]; then
         cachedInfoArr=(${cachedInfo})
-        videoDuration=${cachedInfoArr[1]}
-    else
-
-        # Query youtube-dl for video duration
-        tmpJson=$(mktemp)
-        echo "asking youtube-dl for video info..."
-        $ytdl --dump-json -- $videoId > $tmpJson
-        if [ $? -ne $ec_Success ]; then
-            rm $tmpJson
-            ytdlDownloadErrorOccured=Y
-            printError "Failed to downloaded info for video id "$videoId
-            [ -t 0 ] && read -s -r -p "Press enter to continue, or Ctrl+C to quit..."
-            recordSkipStats
-            return $ec_ContinueNext
+        cachedVideoDuration=${cachedInfoArr[1]}
+        cachedUploadDate=${cachedInfoArr[2]}
+        
+        # Use the cached duration if it does not meet the conditions for a live stream that needs checked for trimming
+        if [ -z "$cachedUploadDate" ] \
+        || [ $cachedVideoDuration -lt $delayDownloadDuration ] \
+        || [ $cachedUploadDate -lt $delayDownloadsAfter ]; then
+            videoDuration=$cachedVideoDuration
+            return $ec_Success
         fi
-        videoDuration=$(queryJson "duration" "$tmpJson") || exit 1
-        videoDateStr=$(queryJson "upload_date" "$tmpJson") || exit 1
-        videoDate=$(date +%s -d "$videoDateStr")
+    fi
+    
+    # Query youtube-dl for video duration
+    tmpJson=$(mktemp)
+    echo "asking youtube-dl for video info..."
+    $ytdl --dump-json -- $videoId > $tmpJson
+    if [ $? -ne $ec_Success ]; then
         rm $tmpJson
-
-        # Apply Live Stream Check Delay Rules (as per properties file)
-        if [ $videoDate -gt $delayDownloadsAfter ] && [ $videoDuration -gt $delayDownloadDuration ]; then
+        ytdlDownloadErrorOccured=Y
+        printError "Failed to downloaded info for video id "$videoId
+        [ -t 0 ] && read -s -r -p "Press enter to continue, or Ctrl+C to quit..."
+        recordSkipStats
+        return $ec_ContinueNext
+    fi
+    videoDuration=$(queryJson "duration" "$tmpJson") || exit 1
+    videoDateStr=$(queryJson "upload_date" "$tmpJson") || exit 1
+    videoDate=$(date +%s -d "$videoDateStr")
+    rm $tmpJson
+    
+    # Apply Live Stream Check Delay Rules (as per properties file)
+    if [ $videoDate -gt $delayDownloadsAfter ] && [ $videoDuration -gt $delayDownloadDuration ]; then
+    
+        # Check if a trim has occurred since last cache
+        if ! [ $videoDuration -le $cachedVideoDuration ]; then
+        
+            # Mark up that video has to be delayed
             delayedUntil=$(date +%s -d "$videoDateStr + $delayedVideosWillBeUploadedAfter")
             delayedDays=$(((delayedUntil-$(date +%s))/86400+1))
             echo "Delaying video id "$videoId" for "$delayedDays" days.  Duration is "$(date +%T -u -d @$videoDuration)
             echo "(Due to property settings on delayDownloadIfVideoIsLongerThan and delayedVideosWillBeUploadedAfter)"
+        
+            # Skip to next video
             recordSkipStats
             return $ec_ContinueNext
-        fi
-
-        # Cache Duration for next time
-        echo $videoId $videoDuration >> "$videoCacheFile"
+        fi 
     fi
+        
+    # Cache duration for next time
+    echo $videoId $videoDuration $videoDate >> "$videoCacheFile"
 
 }
 
@@ -1398,8 +1414,6 @@ processNewDownloads() {
 
         # Skip "0" ids (happens when single video url provided)
         [ $videoId = "0" ] && continue
-
-        #echo "DEBUGGING: skipped=$totalVideosSkipped uploaded=$totalVideosUploaded remaining=$((totalVideosRemaining-totalVideosUploaded)) totalVideosRemaining=$totalVideosRemaining"
 
         # Quit if spent too much time not uploading anything (only just for video duration that will fit)
         if [ $(date +%s) -gt $stopVideoDurationSearch ]; then
@@ -1648,7 +1662,6 @@ splitVideoRoutine() {
             fi
             [ -z "$trueSplitDurationSTR" ] \
             || trueSplitDuration=$(timeInSeconds "$trueSplitDurationSTR")
-            echo "DEBUGGING: trueSplitDurationSTR = $trueSplitDurationSTR , trueSplitDuration = $(date +%T -u -d @$trueSplitDuration) ($trueSplitDuration seconds)"
 
             # Copy json with new info
             jq --compact-output \
@@ -1701,13 +1714,11 @@ splitVideoRoutine() {
         # Correctly track count as only one video if all splits uploaded
         uploadsAfter=$totalVideosUploaded
         splitUploadsDone=$((uploadsAfter-uploadsBefore))
-        #echo "DEBUGGING: uploadsBefore=$uploadsBefore uploadsAfter=$uploadsAfter splitUploadsDone=$splitUploadsDone origVideoSplits=$origVideoSplits totalVideosRemaining=$totalVideosRemaining"
         if [ $splitUploadsDone -eq $origVideoSplits ]; then
             ((totalVideosRemaining+=splitUploadsDone-1))
         else
             ((totalVideosRemaining+=splitUploadsDone))
         fi
-        #echo "DEBUGGING: totalVideosRemaining=$totalVideosRemaining"
 
         # Restart timeout for duration allowance video search
         resetVideoSearchTimeout
@@ -1752,46 +1763,42 @@ prepareForUpload() {
     if [ "$videoId" != "$ytVideoId" ]; then
         getVideoDuration || return $?
     fi
-
-    # Skip right away if greater than last skipped duration
-    if [ $minSkippedDuration -gt 0 ] && [ $videoDuration -gt $minSkippedDuration ]; then
-        echo "Skipping video ID $videoId, duration is "$(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
-        recordSkipStats
-        return $ec_ContinueNext
-    fi
-
-    # Print start of new video
-    echo "***********************************************************"
-    echo "**** Processing Youtube Video ID $videoId **************"
-    echo "***********************************************************"
-
+    
     # Check if video needs to be broken up into parts
     videoSplits=0
     if [ $dmMaxVideoDuration -gt 0 ] && [ $videoDuration -gt $dmMaxVideoDuration ]; then
-        echo "WARNING: Video is longer than the max allowed upload length"
-        echo "Video Splitting required..."
-
         # How many splits are required
         videoSplits=$((videoDuration/dmMaxVideoDuration+1))
 
-        # Print Full Duration Info
-        echo "Current Video Duration:               " $(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
-
         # Query the limits based on max upload size (don't use min size to avoid it priortising split videos over smaller ones)
-        echo "Query upload limits based on max video duration size..."
+        origVideoDuration=$videoDuration
         videoDuration=$dmMaxVideoDuration
     fi
-
+    
     # Skip if greater than max duration by window end
     if ! [ -z $remainingDurationMAX ]; then
         if [ $videoDuration -gt $remainingDurationMAX ]; then
             echo "Skipping video ID $videoId, duration is "$(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
-            if [ $videoDuration -lt $minSkippedDuration ] || [ $minSkippedDuration -eq 0 ]; then
-                minSkippedDuration=$videoDuration
-            fi
             recordSkipStats
             return $ec_ContinueNext
         fi
+    fi
+
+    # Print start of new video
+    echo "***********************************************************"
+    if [ "$videoId" != "$ytVideoId" ]; then
+        echo "**** Processing Youtube Video ID $videoId **************"
+    else
+        echo "**** Existing File: $videoFilename ****"
+    fi
+    echo "***********************************************************"
+    
+    # Print info on video split
+    if [ $videoSplits -gt 0 ]; then
+        echo "WARNING: Video is longer than the max allowed upload length"
+        echo "Video will be split into $videoSplits parts"
+        echo "Upload allowance will be queried based on the maximum allowed duration"
+        echo "Full Video Duration:                  " $(date +%T -u -d @$origVideoDuration) "("$origVideoDuration" seconds)"
     fi
 
     # Get Daily Motion Upload Limits
@@ -1809,13 +1816,6 @@ prepareForUpload() {
             echo "WARNING: option set to ignore upload allowances"
             echo "Continuing with upload anyway..."
             return $ec_Success
-        fi
-
-        # Record the minimum video duration if reason for skip
-        if [ $waitingForType -eq $wr_durationLimit ]; then
-            if [ $videoDuration -lt $minSkippedDuration ] || [ $minSkippedDuration -eq 0 ]; then
-                minSkippedDuration=$videoDuration
-            fi
         fi
 
         # Skip to next video
@@ -2006,12 +2006,12 @@ dmGetAllowance() {
     # Print Info
     [ $remainingDuration -lt 0 ] && remainingDuration=0
     if [ $printAllowances = Y ]; then
-        echo "Checking upload allowance as of       " $(date)" ..."
-        echo "Current video duration:               " $(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
-        echo "Remaining upload duration:            " $(date +%T -u -d @$remainingDuration) "("$remainingDuration" seconds)"
-        echo "Remaining upload videos:              " $remainingVideos
-        echo "Remaining daily uploads:              " $remainingDailyVideos
-        echo "Remaining duration (current window):  " $(date +%T -u -d @$remainingDurationMAX) "("$remainingDurationMAX" seconds)"
+        echo "Checking upload allowance as of    " $(date)
+        echo "  Remaining hourly uploads:        " $remainingVideos
+        echo "  Remaining daily uploads:         " $remainingDailyVideos
+        echo "  Remaining upload duration:       " $(date +%T -u -d @$remainingDuration) "("$remainingDuration" seconds)"
+        echo "  Remaining duration for session:  " $(date +%T -u -d @$remainingDurationMAX) "("$remainingDurationMAX" seconds)"
+        echo "Current video duration:            " $(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
     fi
 
     # Default minimum wait time between uploads
@@ -2836,9 +2836,6 @@ getUserInfo() {
     dmIsVerified=$(queryJson "verified" "$dmServerResponse") || exit 1
     dmUsername=$(queryJson "username" "$dmServerResponse") || exit 1
 
-    # Check for time difference between local PC and server
-    checkServerTimeOffset
-
     # Mark up success
     echo "Successfully connected to dailymotion.com"
     echo "Channel Name:                  " $dmAccountName
@@ -2851,7 +2848,7 @@ getUserInfo() {
         echo "Access Token:                  " $dmAccessToken
     fi
     echo ""
-
+    
     # Higher description length for partner accounts
     if [ $dmIsParnter = true ]; then
         dmMaxDescription=$dmMaxDescriptionForPartners
@@ -2872,6 +2869,9 @@ getUserInfo() {
 
     # Apply 1% tolerance to max file size
     dmMaxVideoSizeTolerance=$((dmMaxVideoSize/100*99))
+    
+    # Check for time difference between local PC and server
+    checkServerTimeOffset
 
 }
 
@@ -2887,6 +2887,8 @@ checkServerTimeOffset() {
 
     # Record local time
     localPCTime=$(date +%s)
+    echo "Performing clock sync..."
+    echo "Local PC Time:                 " $(date -d @$localPCTime)
 
     # Check for Error
     dmPlaylistID=$(queryJson "id" "$dmServerResponse") || exit 1
@@ -2911,7 +2913,6 @@ checkServerTimeOffset() {
 
     # Show the difference
     dmTimeOffset=$((dmTime-localPCTime))
-    echo "Local PC Time:                 " $(date -d @$localPCTime)
     echo "Dailymotion Time:              " $(date -d @$dmTime)
     echo "Time Difference:               " $dmTimeOffset " seconds"
     echo ""
