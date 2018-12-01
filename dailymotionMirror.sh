@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.5.2
+scriptVersionNo=0.5.3
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1106,15 +1106,15 @@ recordSkipStats() {
 
 printStatistics() {
     echo "***********************************************************"
-    echo "**** Upload Statistics for session on $(date +"%F") **********"
+    echo "**** Upload statistics for session on $(date +"%F") **********"
     echo "***********************************************************"
     echo "***********************************************************"
-    echo "**** Remaining Videos to be uploaded:  " $((totalVideosRemaining-totalVideosUploaded))
-    echo "**** Videos Uploaded this sessions:    " $totalVideosUploaded
-    echo "**** Total Duration Uploaded:          " $(date +%T -u -d @$totalDurationUploaded) "("$totalDurationUploaded" seconds)"
-    echo "**** Videos Skipped:                   " $totalVideosSkipped
-    echo "**** Total Duration of Skipped Videos: " $((totalDurationSkipped/60/60))"h "$(date +"%Mm %Ss" -u -d @$totalDurationSkipped) "("$totalDurationSkipped" seconds)"
-    echo "**** Total Time Taken:                 " $(date +"%Hh %Mm %Ss" -d "-$mainStartTime seconds")
+    echo "**** Remaining videos to be uploaded:  " $((totalVideosRemaining-totalVideosUploaded))
+    echo "**** Videos uploaded this session:     " $totalVideosUploaded
+    echo "**** Total duration uploaded:          " $(date +%T -u -d @$totalDurationUploaded) "("$totalDurationUploaded" seconds)"
+    echo "**** Videos skipped:                   " $totalVideosSkipped
+    echo "**** Total duration of skipped videos: " $((totalDurationSkipped/60/60))"h "$(date +"%Mm %Ss" -u -d @$totalDurationSkipped) "("$totalDurationSkipped" seconds)"
+    echo "**** Total time taken:                 " $(date +"%Hh %Mm %Ss" -d "-$mainStartTime seconds")
     echo "***********************************************************"
 }
 
@@ -1772,7 +1772,7 @@ prepareForUpload() {
     # Skip if greater than max duration by window end
     if ! [ -z $remainingDurationMAX ]; then
         if [ $videoDuration -gt $remainingDurationMAX ]; then
-            echo "Skipping video ID $videoId, duration is "$(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
+            echo "Skipping video ID $videoId, duration is "$(date +%T -u -d @$origVideoDuration) "("$origVideoDuration" seconds)"
             recordSkipStats
             return $ec_ContinueNext
         fi
