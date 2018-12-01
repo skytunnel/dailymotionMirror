@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.5.1
+scriptVersionNo=0.5.2
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -342,7 +342,6 @@ installDependencies() {
         echo "    ffmpeg        - used for splitting videos to fit max video size"
         echo "    libav-tools   - used for splitting videos to fit max video size"
         echo "Your system may only support one of these, so both will be attempted..."
-        echo ""
         promptYesNo "Are you happy to continue"
         [ $? -eq $ec_Yes ] || exit
 
@@ -365,7 +364,6 @@ installDependencies() {
         echo "The following program will be downloaded to your device..."
         echo "    youtube-dl    - service for downloading youtube videos"
         echo "    source code:  $ytdlSource"
-        echo ""
         promptYesNo "Are you happy to continue?"
         [ $? -eq $ec_Yes ] || exit
 
@@ -597,7 +595,6 @@ defaultProcedure() {
             # Double check they want to run outside of schedule
             echo "Running this command will start an upload outside of your set schedule"
             echo "Try using the --edit-schedule command if you want to change when this code runs"
-            echo ""
             promptYesNo "Are you sure you want to start uploading outside of your set schedule?"
             [ $? -eq $ec_Yes ] || exit
 
@@ -929,6 +926,7 @@ watchExistingInstance() {
         echo ""
         promptYesNo "Would you like to watch the log of the running instance?"
         [ $? -eq $ec_Yes ] || exit
+        echo ""
         
         # Check if process is still running
         if ps --pid $lockedProccessId > /dev/null ; then
@@ -1673,10 +1671,6 @@ splitVideoRoutine() {
                     .splitPart = $pt' \
                 "$videoJson" \
                 > "$splitJson"
-            #newJsonStr=$(jq --compact-output ".duration = $trueSplitDuration" "$videoJson")
-            #newJsonStr=$(jq --compact-output ".fulltitle = \"$splitTitle\"" <<< "$newJsonStr")
-            #jq --compact-output ".splitPart = $i" <<< "$newJsonStr" > "$splitJson"
-            #newJsonStr=""
 
             # Ensure json file was modified
             newDurationCheck=$(queryJson "duration" "$splitJson") || exit 1
@@ -2006,7 +2000,7 @@ dmGetAllowance() {
     # Print Info
     [ $remainingDuration -lt 0 ] && remainingDuration=0
     if [ $printAllowances = Y ]; then
-        echo "Checking upload allowance as of    " $(date)
+        echo "Checking upload allowance as of $(date)"
         echo "  Remaining hourly uploads:        " $remainingVideos
         echo "  Remaining daily uploads:         " $remainingDailyVideos
         echo "  Remaining upload duration:       " $(date +%T -u -d @$remainingDuration) "("$remainingDuration" seconds)"
@@ -2256,7 +2250,7 @@ tablePrintPublishedJson() {
             --LINE-NUMBERS \
             --chop-long-lines \
             --quit-on-intr \
-        || echo ""
+        || echo -n ""
 
 }
 
@@ -2838,14 +2832,14 @@ getUserInfo() {
 
     # Mark up success
     echo "Successfully connected to dailymotion.com"
-    echo "Channel Name:                  " $dmAccountName
-    echo "Signed as Partner:             " $dmIsParnter
-    echo "Verified Partner:              " $dmIsVerified
-    echo "Max Allowed Duration:          " $dmMaxVideoDuration
-    echo "Max Allowed File Size:         " $dmMaxVideoSize
-    echo "Access expires at:             " $(date -d @$dmAccessExpireTime)
+    echo "Channel Name:                   " $dmAccountName
+    echo "Signed as Partner:              " $dmIsParnter
+    echo "Verified Partner:               " $dmIsVerified
+    echo "Max Allowed Duration:           " $dmMaxVideoDuration
+    echo "Max Allowed File Size:          " $dmMaxVideoSize
+    echo "Access expires at:              " $(date -d @$dmAccessExpireTime)
     if [ $optDebug = Y ]; then
-        echo "Access Token:                  " $dmAccessToken
+        echo "Access Token:                   " $dmAccessToken
     fi
     echo ""
     
@@ -2888,7 +2882,7 @@ checkServerTimeOffset() {
     # Record local time
     localPCTime=$(date +%s)
     echo "Performing clock sync..."
-    echo "Local PC Time:                 " $(date -d @$localPCTime)
+    echo "Local PC Time:                  " $(date -d @$localPCTime)
 
     # Check for Error
     dmPlaylistID=$(queryJson "id" "$dmServerResponse") || exit 1
@@ -2913,8 +2907,8 @@ checkServerTimeOffset() {
 
     # Show the difference
     dmTimeOffset=$((dmTime-localPCTime))
-    echo "Dailymotion Time:              " $(date -d @$dmTime)
-    echo "Time Difference:               " $dmTimeOffset " seconds"
+    echo "Dailymotion Time:               " $(date -d @$dmTime)
+    echo "Time Difference:                " $dmTimeOffset " seconds"
     echo ""
 
     # Delete the playlist (done on loop as it did fail to delete once)
@@ -3084,7 +3078,6 @@ firstTimeSetup() {
     # Check if properties files already exists
     if [ -f "$propertiesFile" ]; then
         echo "WARNING .prop file already exists!"
-        echo ""
         promptYesNo "This will revert your settings. Are you sure you want to continue?"
         [ $? -eq $ec_Yes ] || exit
 
@@ -3370,7 +3363,6 @@ validateProperties() {
         if [ -t 0 ]; then
             echo ""
             echo "Validation failures found on your .prop file!"
-            echo ""
             promptYesNo "Do you want to review and make changes now?"
             if ! [ $? -eq $ec_Yes ]; then
                 echo ""
@@ -3721,7 +3713,6 @@ updateSourceCode() {
     fi
 
     # Are you sure?
-    echo ""
     promptYesNo "Are you sure you want update this script?"
     [ $? -eq $ec_Yes ] || exit
 
