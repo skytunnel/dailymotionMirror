@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.5.3
+scriptVersionNo=0.5.4
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -3736,6 +3736,7 @@ updateSourceCode() {
 
     # Cancel if already on newest version
     if [ "$scriptVersionNo" = "$newVersionNumber" ]; then
+        rm $tmpFile
         raiseError "Nothing to update!  You are on the latest version $newVersionNumber"
     fi
 
@@ -3743,7 +3744,10 @@ updateSourceCode() {
     if [ "$scriptVersionNo" \> "$newVersionNumber" ]; then
         echo "You are on a higher version than the latest $optUpdateGitBranch release!? Latest version is $newVersionNumber"
         promptYesNo "Are you sure you want downgrade this script?"
-        [ $? -eq $ec_Yes ] || exit
+        if [ $? -eq $ec_Yes ]; then
+            rm $tmpFile
+            exit
+        fi
     fi
 
     # Backup copy
