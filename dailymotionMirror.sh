@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.5.4
+scriptVersionNo=0.5.5
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -136,26 +136,19 @@ function raiseError() {
 
 # function to test for numeric value
 function isNumeric() {
-    case $1 in
-        ''|*[!0-9]*) echo N ;;
-        *)           echo Y ;;
+    case "$@" in 
+        ''|*[!0-9]*) return $ec_Error ;;        
     esac
+    return $ec_Success
 }
 
 # function to test for date value
 function isDate() {
-    testVal="$@"
-    if [ -z "$testVal" ]; then
-        echo N
-    else
-        date -d "+$testVal" > /dev/null
-        if [ $? -ne $ec_Success ]; then
-            echo N
-        else
-            echo Y
-        fi
-    fi
+    [ -z "$@" ] && return $ec_Error
+    date -d "$@" > /dev/null 2>&1 || return $ec_Error
+    return $ec_Success
 }
+
 
 # Function convert a time string to number of seconds
 function timeInSeconds() {
@@ -299,7 +292,7 @@ startupChecks() {
 
     # Markup if using ffmpeg
     useFFMPEG=N
-    [ $startupConfirmed = Y ] && [ -z $(command -v ffmpeg) ] || useFFMPEG=Y
+    [ -z $(command -v ffmpeg) ] || useFFMPEG=Y
 
 }
 
@@ -447,9 +440,8 @@ inputArguments() {
         --count=*)
             optUserRunUpload=Y
             optCountOfUpload="${i#*=}"
-            if [ $(isNumeric $optCountOfUpload) = N ]; then
-                raiseError "--count=NUM must be numeric!"
-            fi
+            isNumeric $optCountOfUpload \
+                || raiseError "--count=NUM must be numeric!"
             ;;
         --single-video=*)
             optUserRunUpload=Y
@@ -857,7 +849,7 @@ getExistingInstance() {
 }
 
 printExistingInstanceInfo() {
-    echo -n "$scriptFile has already been running since $existingProcessStart (pid: $existingProcessId )"
+    echo -n "$scriptFile has already been running since $existingProcessStart (pid: ${existingProcessId})"
 }
 
 exitOnExistingInstance() {
@@ -1030,7 +1022,6 @@ main() {
     fi
 
     # process existing videos not uploaded from previous session
-    echo "processing pre-existing files..."
     processExistingJsons
 
     # Process new downloads from youtube
@@ -1760,12 +1751,12 @@ prepareForUpload() {
     
     # Check if video needs to be broken up into parts
     videoSplits=0
+    origVideoDuration=$videoDuration
     if [ $dmMaxVideoDuration -gt 0 ] && [ $videoDuration -gt $dmMaxVideoDuration ]; then
         # How many splits are required
         videoSplits=$((videoDuration/dmMaxVideoDuration+1))
 
         # Query the limits based on max upload size (don't use min size to avoid it priortising split videos over smaller ones)
-        origVideoDuration=$videoDuration
         videoDuration=$dmMaxVideoDuration
     fi
     
@@ -1910,11 +1901,11 @@ dmGetAllowance() {
         uploadStatus=${recArr[3]}
 
         # Ensure values exists
-        if [ $(isNumeric $uploadTime) = N ]; then
+        if ! isNumeric $uploadTime; then
             echo "uploadTime is non-numeric: $uploadTime $uploadDur"
             continue
         fi
-        if [ $(isNumeric $uploadDur) = N ]; then
+        if ! isNumeric $uploadDur; then
             echo "uploadDur is non-numeric: $uploadTime $uploadDur"
             continue
         fi
@@ -2049,7 +2040,7 @@ waitForUploadAllowance() {
 
     # Given target wait time
     targetTime=$1
-    [ $(isNumeric $targetTime) = N ] && targetTime=0
+    isNumeric $targetTime || targetTime=0
     [ $targetTime -gt 0 ] || targetTime=0
 
     # Use the waiting time to check if previous video has published yet (and update with the correct published time)
@@ -2075,7 +2066,7 @@ waitForUploadAllowance() {
     else
         # Required Sleep Time
         sleepTime=$((waitingTime-targetTime))
-        sleepTill=$((maxWaitTill-targetTime))
+        sleepTill=$((maxWaitTill-targetTime+dmExpiryToleranceTime))
 
         # Sleep
         echo "Waiting till "$(date -d @$sleepTill)", allowance available at "$(date -d @$maxWaitTill)
@@ -2204,7 +2195,7 @@ uploadToDailyMotion() {
     echo "${mirrorDate},${ytVideoId},${dmVideoId},${videoDuration},${videoPart},\"${videoTitle}\"" >> "$uploadTrackingFileCSV"
 
     # Delete/Keep local files
-    if [ $keepDownloadedVideos = Y ] && [ $(isNumeric $videoPart) = N ]; then
+    if [ $keepDownloadedVideos = Y ] && ! isNumeric $videoPart; then
         [ -d "./$keepVideosDir" ] || mkdir "./$keepVideosDir"
         mv "./$videoFilePath" "./$keepVideosDir/$videoFilePath"
         mv "./$videoJson" "./$keepVideosDir/$videoJson"
@@ -2390,7 +2381,7 @@ waitForPublish() {
 addLinkToPrevVideoPart() {
 
     # Not Required
-    [ $(isNumeric $videoPart) = N ] && return $ec_Error
+    isNumeric $videoPart || return $ec_Error
     [ $videoPart -gt 1 ] || return $ec_Error
 
     # Find the id of the previous part
@@ -2619,7 +2610,7 @@ syncVideoDetails() {
 
     # Update fields to account for video split parts
     videoPart=$(queryJson "part" "$uploadInfoJson") || exit 1
-    if [ $(isNumeric $videoPart) = Y ]; then
+    if isNumeric $videoPart; then
         dmVideoUrl=$(queryJson "url" "$dmServerResponse") || exit 1
         videoTitle=$(queryJson "title" "$uploadInfoJson") || exit 1
         uploadVideoWithNextVideoIdPlayback=
@@ -3278,7 +3269,7 @@ validateProperties() {
     fi
 
     # Convert Delay Length Time to number
-    if [ $(isDate "$delayDownloadIfVideoIsLongerThan") = N ]; then
+    if ! isDate "$delayDownloadIfVideoIsLongerThan"; then
         printError "\"$delayDownloadIfVideoIsLongerThan\" is an invalid time value for delayDownloadIfVideoIsLongerThan"
         propFailedValidation=Y
     else
@@ -3290,7 +3281,7 @@ validateProperties() {
     fi
 
     # Convert Delay Period Time to number
-    if [ $(isDate "$delayedVideosWillBeUploadedAfter") = N ]; then
+    if ! isDate "$delayedVideosWillBeUploadedAfter"; then
         printError "\"$delayedVideosWillBeUploadedAfter\" is an invalid time value for delayedVideosWillBeUploadedAfter"
         propFailedValidation=Y
     else
@@ -3298,7 +3289,7 @@ validateProperties() {
     fi
 
     # Convert the target allowance to a number
-    if [ $(isDate "$targetRemainingAllowance") = N ]; then
+    if ! isDate "$targetRemainingAllowance"; then
         printError "\"$targetRemainingAllowance\" is an invalid time value for targetRemainingAllowance"
         propFailedValidation=Y
     else
@@ -3310,7 +3301,7 @@ validateProperties() {
     fi
 
     # Convert search timeout to a number
-    if [ $(isDate "$durationAllowanceSearchTimeout") = N ]; then
+    if ! isDate "$durationAllowanceSearchTimeout"; then
         printError "\"$durationAllowanceSearchTimeout\" is an invalid time value for durationAllowanceSearchTimeout"
         propFailedValidation=Y
     else
