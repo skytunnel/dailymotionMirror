@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.5.5
+scriptVersionNo=0.5.7
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -148,7 +148,6 @@ function isDate() {
     date -d "$@" > /dev/null 2>&1 || return $ec_Error
     return $ec_Success
 }
-
 
 # Function convert a time string to number of seconds
 function timeInSeconds() {
@@ -971,7 +970,7 @@ main() {
     [ -f "$urlsFile" ] || raiseError "urls file not found! $urlsFile"
 
     # Determine when the next 24 hour upload period begins
-    videoDuration=0
+    queryVideoDuration=0
     oldestVideoThisHour=0
     oldestVideoThisDay=0
     [ -f "$allowanceFile" ] && dmGetAllowance --do-not-print
@@ -1040,7 +1039,7 @@ exitRoutine() {
     clearVideoCacheFile
 
     # Wait for remaining videos to be published
-    videoDuration=0
+    queryVideoDuration=0
     dmGetAllowance --do-not-print
     if [ $unpublishedVideosExist = Y ]; then
         checkTill=$dmUploadQuitingTime
@@ -1107,6 +1106,133 @@ printStatistics() {
     echo "**** Total duration of skipped videos: " $((totalDurationSkipped/60/60))"h "$(date +"%Mm %Ss" -u -d @$totalDurationSkipped) "("$totalDurationSkipped" seconds)"
     echo "**** Total time taken:                 " $(date +"%Hh %Mm %Ss" -d "-$mainStartTime seconds")
     echo "***********************************************************"
+}
+
+initialiseVariables() {
+
+    # Procedure to clear all the variables between video uploads (to ensure the next loop doesn't use info from previous)
+    cachedInfo=
+    cachedInfoArr=
+    cachedUploadDate=
+    cachedVideoDuration=
+    checkTill=
+    checkTime=
+    confirmVideoId=
+    currentTime=
+    dailyLimitWaitTill=
+    delayedDays=
+    delayedUntil=
+    dmCreatedTime=
+    dmDescrTemplateNew=
+    dmDuration=
+    dmEditedVideoId=
+    dmEncodingPC=
+    dmErrorReason=
+    dmExplicit=
+    dmIdCheck=
+    dmPostedUrl=
+    dmPublishedVideoId=
+    dmPublishingPC=
+    dmServerResponse=
+    dmStatus=
+    dmUploadUrl=
+    dmVideoDescr=
+    dmVideoId=
+    dmVideoTitle=
+    dmVideoUrl=
+    durationLimitWaitTill=
+    durationUploadWindow=
+    durationUploadWindowMAX=
+    fieldContext=
+    fieldName=
+    hashTags=
+    i=
+    jsonFound=
+    jsonName=
+    latestUploadTime=
+    maxWaitTill=
+    minimumWaitTill=
+    minSplitDuration=
+    mirrorDate=
+    newDurationCheck=
+    newFileContent=
+    oldestVideoThisDay=
+    oldestVideoThisHour=
+    origVideoSplits=
+    prevDmDescr=
+    prevDmId=
+    prevDmNextId=
+    prevDmStatus=
+    previousSplit=
+    prevPart=
+    prevPublishedPart=
+    printAllowances=
+    publishWaitTill=
+    queryVideoDuration=
+    #rec=
+    recArr=
+    #recs=
+    recsInLastDay=
+    remainingDailyVideos=
+    remainingDuration=
+    #remainingDurationMAX=
+    remainingDurationSoon=
+    remainingVideos=
+    resortFile=
+    returnCode=
+    sleepTill=
+    sleepTime=
+    splitFilename=
+    splitJson=
+    splitTitle=
+    splitUploadsDone=
+    targetTime=
+    timeTillQuit=
+    timeTillWindowEnds=
+    tmpJson=
+    tmpSplitDir=
+    trueSplitDuration=
+    trueSplitDurationSTR=
+    #unpublishedVideosExist=
+    uploadDur=
+    uploadFilePath=
+    uploadId=
+    uploadLine=
+    uploadsAfter=
+    uploadsBefore=
+    uploadStatus=
+    uploadTime=
+    VideoBlockingUpload=
+    videoDate=
+    videoDateStr=
+    videoDuration=
+    videoExt=
+    videoFields=
+    videoFilename=
+    videoFilePath=
+    videoFileSize=
+    videoFileSizeSplit=
+    videoId=
+    #videoJson=
+    videoLimitWaitTill=
+    videoPart=
+    videoSplits=
+    videoThumbnail=
+    videoTitle=
+    videoUploadWindow=
+    vj=
+    vjVideoId=
+    waitingForType=
+    waitingTime=
+    youtubeChannel=
+    youtubeVideoDescr=
+    youtubeVideoLink=
+    youtubeVideoTags=
+    youtubeVideoTagsList=
+    youtubeVideoUploadDate=
+    #ytdlDownloadErrorOccured=
+    ytVideoId=
+
 }
 
 getVideoDuration() {
@@ -1304,6 +1430,9 @@ processExistingJsons() {
     preExistingVideos=0
     for videoJson in ./*.$ytdlInfoExt ; do
         [ -f "$videoJson" ] || break
+        
+        # Initialise Variables
+        initialiseVariables
 
         # Add on to remaining videos (as would not have been counted previously)
         ((preExistingVideos++))
@@ -1395,23 +1524,24 @@ processNewDownloads() {
     resetVideoSearchTimeout
 
     # Download new videos
-    #for videoId in $(sed -e s/"youtube "//g "$videoListFile"); do
     readarray recs < "$videoListFile"
     for rec in "${recs[@]}"; do
+    
+        # Initialise Variables
+        initialiseVariables
+        
+        # Get video Id from line in file
         recArr=(${rec})
         videoId=${recArr[1]}
 
         # Skip "0" ids (happens when single video url provided)
-        [ $videoId = "0" ] && continue
+        [ "$videoId" = "0" ] && continue
 
         # Quit if spent too much time not uploading anything (only just for video duration that will fit)
         if [ $(date +%s) -gt $stopVideoDurationSearch ]; then
             echo "Cannot find video to fit remaining upload allowance within specified timeout period (i.e durationAllowanceSearchTimeout)"
             break
         fi
-
-        # Reset variable used by get info from json (this is used later to detect when called by the split routine)
-        ytVideoId=
         
         # Prep for the upload (check upload limits etc)
         prepareForUpload
@@ -1751,19 +1881,19 @@ prepareForUpload() {
     
     # Check if video needs to be broken up into parts
     videoSplits=0
-    origVideoDuration=$videoDuration
+    queryVideoDuration=$videoDuration
     if [ $dmMaxVideoDuration -gt 0 ] && [ $videoDuration -gt $dmMaxVideoDuration ]; then
         # How many splits are required
         videoSplits=$((videoDuration/dmMaxVideoDuration+1))
 
         # Query the limits based on max upload size (don't use min size to avoid it priortising split videos over smaller ones)
-        videoDuration=$dmMaxVideoDuration
+        queryVideoDuration=$dmMaxVideoDuration
     fi
     
     # Skip if greater than max duration by window end
     if ! [ -z $remainingDurationMAX ]; then
-        if [ $videoDuration -gt $remainingDurationMAX ]; then
-            echo "Skipping video ID $videoId, duration is "$(date +%T -u -d @$origVideoDuration) "("$origVideoDuration" seconds)"
+        if [ $queryVideoDuration -gt $remainingDurationMAX ]; then
+            echo "Skipping video ID $videoId, duration is "$(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
             recordSkipStats
             return $ec_ContinueNext
         fi
@@ -1777,14 +1907,6 @@ prepareForUpload() {
         echo "**** Existing File: $videoFilename ****"
     fi
     echo "***********************************************************"
-    
-    # Print info on video split
-    if [ $videoSplits -gt 0 ]; then
-        echo "WARNING: Video is longer than the max allowed upload length"
-        echo "Video will be split into $videoSplits parts"
-        echo "Upload allowance will be queried based on the maximum allowed duration"
-        echo "Full Video Duration:                  " $(date +%T -u -d @$origVideoDuration) "("$origVideoDuration" seconds)"
-    fi
 
     # Get Daily Motion Upload Limits
     dmGetAllowance
@@ -1824,6 +1946,14 @@ prepareForUpload() {
             return $ec_ContinueNext
         fi
     fi
+    
+    # Print info on video split
+    if [ $videoSplits -gt 0 ]; then
+        echo "WARNING: Video is longer than the max allowed upload length"
+        echo "Video will need split into $videoSplits parts"
+        echo "Upload allowance will be queried based on the maximum allowed duration"
+        echo "Full Video Duration:                  " $(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
+    fi
 
 }
 
@@ -1859,9 +1989,7 @@ dmGetAllowance() {
 
     # Print the allowance?
     printAllowances=Y
-    if [ "$1" = "--do-not-print" ]; then
-        printAllowances=N
-    fi
+    [ "$1" = "--do-not-print" ] && printAllowances=N
 
     # Reset Dailymotion upload limits
     remainingDuration=$dmDurationAllowance
@@ -1879,6 +2007,8 @@ dmGetAllowance() {
     durationLimitWaitTill=0
     dailyLimitWaitTill=0
     maxWaitTill=0
+    remainingDurationSoon=0
+    waitingTime=0
     unpublishedVideosExist=N
 
     # Create Limits tracking file if it doesn't exist
@@ -1961,7 +2091,7 @@ dmGetAllowance() {
     recs=
 
     # Calculate when enough duration will be available
-    if [ $videoDuration -gt $remainingDuration ]; then
+    if [ $queryVideoDuration -gt $remainingDuration ]; then
 
         # Review file again to work out earliest point
         remainingDurationSoon=$remainingDuration
@@ -1977,7 +2107,7 @@ dmGetAllowance() {
 
             # Will this provide enough?
             ((remainingDurationSoon+=uploadDur))
-            if [ $remainingDurationSoon -gt $videoDuration ]; then
+            if [ $remainingDurationSoon -gt $queryVideoDuration ]; then
                 VideoBlockingUpload=$uploadTime
                 break
             fi
@@ -2014,7 +2144,7 @@ dmGetAllowance() {
     fi
 
     # Check if duration limit reached
-    if [ $remainingDuration -lt $videoDuration ]; then
+    if [ $remainingDuration -lt $queryVideoDuration ]; then
         durationLimitWaitTill=$((VideoBlockingUpload+dmDurationAllowanceExpiry))
         if [ $durationLimitWaitTill -gt $maxWaitTill ]; then
             maxWaitTill=$durationLimitWaitTill
@@ -2706,7 +2836,7 @@ echoUploadsToday() {
     echo ""
     echo "Comparing with local tracking file..."
     optDebug=Y
-    videoDuration=$dmMaxVideoDuration
+    queryVideoDuration=$dmMaxVideoDuration
     dmGetAllowance --do-not-print
 
     # Display time to wait for max upload
