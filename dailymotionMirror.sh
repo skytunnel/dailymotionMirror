@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.5.7
+scriptVersionNo=0.6.0
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -153,6 +153,24 @@ function isDate() {
 function timeInSeconds() {
     echo $(date +%s -u -d "$(date +%F -d @0) $@")
 }
+
+# function to pause untill user clicks enter
+function pause() {
+
+    # Only on interactive mode
+    [ -t 0 ] || return 0
+    
+    # prompt text
+    prompText="Press enter to continue..."
+    [ -z "$@" ] || prompText="$@"
+    
+    # Wait for enter key
+    read -s -r -p "$prompText"
+    
+    # Line break to fix inline entry from above
+    echo ""
+}
+
 
 # function to prompt user for yes/no response
 function promptYesNo() {
@@ -342,6 +360,7 @@ installDependencies() {
 
         # Try install avconv if that failed
         if [ $? -ne $ec_Success ]; then
+            printError "Failed to install ffmpeg.  Trying libav-tools instead..."
             sudo apt-get install libav-tools || exit 1
         fi
 
@@ -898,7 +917,7 @@ killExistingInstance() {
 }
 
 watchExistingInstance() {
-
+    
     # Error if no log file found
     [ -f "$logFile" ] || raiseError "Log file does not exist!"
 
@@ -909,11 +928,10 @@ watchExistingInstance() {
     echo ""
     
     # Conditions to follow the log file
-    if [ $lockedProccessId -gt 0 ]; then
+    if [ $existingProcessId -gt 0 ] && [ $existingProcessId -eq $lockedProccessId ]; then
         
         # Inform user of existing process info
-        [ $existingProcessId -eq $lockedProccessId ] && \
-            printExistingInstanceInfo
+        printExistingInstanceInfo
         echo ""
         promptYesNo "Would you like to watch the log of the running instance?"
         [ $? -eq $ec_Yes ] || exit
@@ -1271,7 +1289,7 @@ getVideoDuration() {
         rm $tmpJson
         ytdlDownloadErrorOccured=Y
         printError "Failed to downloaded info for video id "$videoId
-        [ -t 0 ] && read -s -r -p "Press enter to continue, or Ctrl+C to quit..."
+        pause "Press enter to continue, or Ctrl+C to quit..."
         recordSkipStats
         return $ec_ContinueNext
     fi
@@ -1279,6 +1297,9 @@ getVideoDuration() {
     videoDateStr=$(queryJson "upload_date" "$tmpJson") || exit 1
     videoDate=$(date +%s -d "$videoDateStr")
     rm $tmpJson
+    
+    # Cache duration for next time
+    [ -z "$cachedInfo" ] && echo $videoId $videoDuration $videoDate >> "$videoCacheFile"
     
     # Apply Live Stream Check Delay Rules (as per properties file)
     if [ $videoDate -gt $delayDownloadsAfter ] && [ $videoDuration -gt $delayDownloadDuration ]; then
@@ -1297,10 +1318,7 @@ getVideoDuration() {
             return $ec_ContinueNext
         fi 
     fi
-        
-    # Cache duration for next time
-    echo $videoId $videoDuration $videoDate >> "$videoCacheFile"
-
+    
 }
 
 clearVideoCacheFile() {
@@ -1484,7 +1502,8 @@ getFullListOfVideos() {
         ${youtubePlaylistReverseOpt:+ --playlist-reverse} \
         --batch-file "$urlsFile" \
         | jq --raw-output \
-        '"youtube \(.id)"'
+        '"youtube \(.id)"' \
+        || raiseError "Failed to get video list"
     # (This has been tested that to show that it excludes active live streams)
 
 }
@@ -1501,7 +1520,6 @@ processNewDownloads() {
     # Store all video ids from given youtube playlists/channels/videos
     echo "Connecting to youtube-dl server for video list..."
     getFullListOfVideos > "$videoListFile"
-    [ $? -ne $ec_Success ] && raiseError "Failed to get video list"
 
     # Compare with .done file to see what's new
     if [ -f "$archiveFile" ]; then
@@ -1607,7 +1625,8 @@ downloadVideo() {
     if [ $? -ne $ec_Success ]; then
         ytdlDownloadErrorOccured=Y
         printError "Failed to download video id" $videoId
-        [ -t 0 ] && read -s -r -p "Press enter to continue, or Ctrl+C to quit..."
+        pause "Press enter to continue, or Ctrl+C to quit..."
+        echo ""
         recordSkipStats
         return $ec_ContinueNext
     fi
@@ -1951,8 +1970,6 @@ prepareForUpload() {
     if [ $videoSplits -gt 0 ]; then
         echo "WARNING: Video is longer than the max allowed upload length"
         echo "Video will need split into $videoSplits parts"
-        echo "Upload allowance will be queried based on the maximum allowed duration"
-        echo "Full Video Duration:                  " $(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
     fi
 
 }
@@ -3224,13 +3241,13 @@ firstTimeSetup() {
     echo "Initializing First Time Setup..."
     echo "You will be moved to a file editor to provide further information"
     echo ""
-    read -s -r -p "Press enter to continue..."
+    pause
     createUrlsFile
 
     # Get user to author the settings in the properties files
     echo ".urls file successfully created.  Moving on to create properties file..."
     echo ""
-    read -s -r -p "Press enter to continue..."
+    pause
     createPropFile
     echo ".prop file successfully created"
 
@@ -3256,7 +3273,7 @@ firstTimeSetup() {
     echo "Last step is to setup this script to run automatically on schedule."
     echo "You will be moved to another file editor where you can override the randomly assigned minute/hour schedule"
     echo ""
-    read -s -r -p "Press enter to continue..."
+    pause
     editCronFile
 
     # Confirm
@@ -3526,7 +3543,7 @@ createUrlsFile() {
 editUrlsFile() {
 
     # Open urls file for user edits
-    nano --syntax=sh --mouse "$urlsFile"
+    nano --syntax=sh "$urlsFile"
 
 }
 
@@ -3568,7 +3585,7 @@ createPropFile() {
 editPropFile() {
 
     # Open prop file for user edits
-    nano --syntax=awk --mouse "$propertiesFile"
+    nano --syntax=awk "$propertiesFile"
 
     # Load and Validate the properties file
     echo "Validating any changes..."
@@ -3783,7 +3800,7 @@ editCronFile() {
     fi
 
     # Edit the tmp file
-    nano --syntax=awk --mouse $tmpCronFile
+    nano --syntax=awk $tmpCronFile
 
     # Copy to Cron Dir
     sudo cp $tmpCronFile $cronJobFile || exit 1
