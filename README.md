@@ -8,7 +8,7 @@ Run the following commands in a new directory (wherever you want to manage it fr
     sudo chmod a+rx dailymotionMirror.sh
     ./dailymotionMirror.sh
 
-Then follow the setup instructions from there.  You may want to rename the script if managing multiple dailymotion accounts (although ensure to keep them in the same folder so that they can share the same upload allowance)
+Then follow the setup instructions from there.  You may want to rename the script if managing multiple dailymotion accounts (although ensure to keep them in the same folder so that they can share the same upload allowance); if so, be sure to do it before running the first-time-setup.  Do not rename after first-time-setup is complete.
 
 # Disclaimer
 I take no responsibility for any prohibited content that is uploaded to dailymotion as a result of using this script.
