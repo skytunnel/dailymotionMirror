@@ -6,8 +6,9 @@ Run the following commands in a new directory (wherever you want to manage it fr
     
     wget "https://raw.githubusercontent.com/skytunnel/dailymotionMirror/master/dailymotionMirror.sh" --output-document dailymotionMirror.sh
     sudo chmod a+rx dailymotionMirror.sh
+    ./dailymotionMirror.sh
 
-Run the `dailymotionMirror.sh` script from the terminal and follow the setup instructions
+Then follow the setup instructions from there.  You may want to rename the script if managing multiple dailymotion accounts (although ensure to keep them in the same folder so that they can share the same upload allowance)
 
 # Disclaimer
 I take no responsibility for any prohibited content that is uploaded to dailymotion as a result of using this script.
