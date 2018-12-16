@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.6.2
+scriptVersionNo=0.6.3
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -50,8 +50,8 @@ setConstants() {
     videoCacheFile=$scriptDir/.cache
     archiveFile=$scriptDir/.downloaded
     allowanceFile=$scriptDir/.allowance
-    uploadTrackingFile=$scriptDir/published.json
-    uploadTrackingFileCSV=$scriptDir/published.csv
+    publishedUploadsFile=$scriptDir/published.json
+    publishedUploadsFileCSV=$scriptDir/published.csv
     logFile=$scriptDir/$scriptName.log
     logArchive=$(date +"%Y%m%d_%H%M%S").log
     outputDir=$scriptDir/$scriptName/ # Defaults to this when not set on prop file
@@ -1087,8 +1087,8 @@ exitRoutine() {
     if [ -d "$processingDirectoryFull" ]; then
         bkuDir="$processingDirectoryFull"/$backupDir/
         [ -d "$bkuDir" ] || mkdir "$bkuDir"
-        cp --force "$uploadTrackingFile" "$bkuDir"
-        cp --force "$uploadTrackingFileCSV" "$bkuDir"
+        cp --force "$publishedUploadsFile" "$bkuDir"
+        cp --force "$publishedUploadsFileCSV" "$bkuDir"
         cp --force "$propertiesFile" "$bkuDir"
         cp --force "$urlsFile" "$bkuDir"
         cp --force "$archiveFile" "$bkuDir"
@@ -1126,17 +1126,17 @@ recordSkipStats() {
 }
 
 printStatistics() {
-    echo "***********************************************************"
-    echo "**** Upload statistics for session on $(date +"%F") **********"
-    echo "***********************************************************"
-    echo "***********************************************************"
+    echo "*****************************************************************"
+    echo "**** Upload statistics for session on $(date +"%F") ****************"
+    echo "*****************************************************************"
+    echo "*****************************************************************"
     echo "**** Remaining videos to be uploaded:  " $((totalVideosRemaining-totalVideosUploaded))
     echo "**** Videos uploaded this session:     " $totalVideosUploaded
     echo "**** Total duration uploaded:          " $(date +%T -u -d @$totalDurationUploaded) "("$totalDurationUploaded" seconds)"
     echo "**** Videos skipped:                   " $totalVideosSkipped
     echo "**** Total duration of skipped videos: " $((totalDurationSkipped/60/60))"h "$(date +"%Mm %Ss" -u -d @$totalDurationSkipped) "("$totalDurationSkipped" seconds)"
     echo "**** Total time taken:                 " $(date +"%Hh %Mm %Ss" -d "-$mainStartTime seconds")
-    echo "***********************************************************"
+    echo "*****************************************************************"
 }
 
 initialiseVariables() {
@@ -1299,7 +1299,7 @@ getVideoDuration() {
     
     # Query youtube-dl for video duration
     tmpJson=$(mktemp)
-    echo "Querying youtube-dl for video id $videoId..."
+    logAction "Querying youtube-dl for video id $videoId"
     $ytdl --dump-json -- $videoId > $tmpJson
     if [ $? -ne $ec_Success ]; then
         rm $tmpJson
@@ -1338,13 +1338,11 @@ getVideoDuration() {
 
 clearVideoCacheFile() {
 
-    echo "Cleaning video cache file..."
-
     # Get a list of uploaded ids
     tmpUploadedIDsFile=$(mktemp)
     jq --raw-output \
         '.youtubeId' \
-        "$uploadTrackingFile" \
+        "$publishedUploadsFile" \
         > $tmpUploadedIDsFile
 
     # Compare to ids from cache file
@@ -1501,7 +1499,7 @@ processExistingJsons() {
         uploadToDailyMotion
         
         # Finish marker
-        echo "***********************************************************"
+        echo "*****************************************************************"
 
     done
 
@@ -1534,10 +1532,8 @@ getFullListOfVideos() {
 formatFullListOfVideos() {
     
     # Format json from youtube-dl to just show the video id
-    getFullListOfVideos \
-        | jq --raw-output \
-        '"youtube \(.id)"'
-        #'"\(.ie_key) \(.id)"'
+    getFullListOfVideos | jq --raw-output \
+        '"\(.ie_key|ascii_downcase) \(.id)"' #" \(.title)"
 
 }
 
@@ -1637,7 +1633,7 @@ processNewDownloads() {
         resetVideoSearchTimeout
         
         # Finish marker
-        echo "***********************************************************"
+        echo "*****************************************************************"
 
     done
 }
@@ -1715,7 +1711,7 @@ markAsDownloaded() {
             echo "Syncing with uploads .json file"
             jq --raw-output \
                 '"youtube \(.youtubeId)"' \
-                "$uploadTrackingFile" \
+                "$publishedUploadsFile" \
                 > "$archiveFile"
             ;;
         *)
@@ -1961,13 +1957,13 @@ prepareForUpload() {
     fi
 
     # Print start of new video
-    echo "***********************************************************"
+    echo "*****************************************************************"
     if [ "$videoId" != "$ytVideoId" ]; then
-        echo "**** Processing Youtube Video ID $videoId **************"
+        echo "**** Processing Youtube Video ID $videoId ********************"
     else
         echo "**** Existing File: $videoFilename"
     fi
-    echo "***********************************************************"
+    echo "*****************************************************************"
 
     # Get Daily Motion Upload Limits
     dmGetAllowance
@@ -2259,7 +2255,7 @@ waitForUploadAllowance() {
 
         # Sleep
         printInfoOnWaitReason
-        echo "Waiting till "$(date -d @$sleepTill) $targetMessage
+        echo "  Waiting till "$(date +%X -d @$sleepTill) $targetMessage
         [ -t 0 ] && echo "(Or press Ctrl+C to quit instead)"
         sleep $sleepTime
         
@@ -2273,7 +2269,7 @@ printInfoOnWaitReason() {
 
     # Detailed info message for wait reason (only prints the first time)
     if ! [ "$waitInfoPrinted" = "Y" ]; then
-        echo -n $(date)" - Do not upload until "$(date -d @$maxWaitTill)" due to "
+        echo -n "  Not posting video until "$(date +%X -d @$maxWaitTill)" due to "
         waitReasonDescription $waitingForType
         waitInfoPrinted=Y
     fi
@@ -2296,7 +2292,7 @@ waitReasonDescription() {
 logAction() {
     
     # Short procedure to prefix date to logged action
-    echo $(date) " - $@ ..."
+    echo $(date +%X) "- $@ ..."
 
 }
 
@@ -2395,13 +2391,13 @@ uploadToDailyMotion() {
         --arg pt "$videoPart" \
         --arg vt "$videoTitle" \
         '{mirrorDate: $md, youtubeId: $ut, dailyMotionId: $dm, duration: $du, part: $pt, title: $vt}' \
-        >> "$uploadTrackingFile"
+        >> "$publishedUploadsFile"
 
     # Record upload to csv file
-    if ! [ -f "$uploadTrackingFileCSV" ]; then
-        echo "Mirror_Date,YouTube_ID,Dailymotion_ID,Duration,Part_No,Title" > "$uploadTrackingFileCSV"
+    if ! [ -f "$publishedUploadsFileCSV" ]; then
+        echo "Mirror_Date,YouTube_ID,Dailymotion_ID,Duration,Part_No,Title" > "$publishedUploadsFileCSV"
     fi
-    echo "${mirrorDate},${ytVideoId},${dmVideoId},${videoDuration},${videoPart},\"${videoTitle}\"" >> "$uploadTrackingFileCSV"
+    echo "${mirrorDate},${ytVideoId},${dmVideoId},${videoDuration},${videoPart},\"${videoTitle}\"" >> "$publishedUploadsFileCSV"
 
     # Delete/Keep local files
     if [ $keepDownloadedVideos = Y ] && ! isNumeric $videoPart; then
@@ -2423,7 +2419,7 @@ uploadToDailyMotion() {
 tablePrintPublishedJson() {
     
     # Initial attempt at printing the csv file
-    #column -s, -t "$uploadTrackingFileCSV" \
+    #column -s, -t "$publishedUploadsFileCSV" \
     #    | less --shift=2 \
     #    --LINE-NUMBERS \
     #    --chop-long-lines \
@@ -2443,7 +2439,7 @@ tablePrintPublishedJson() {
                  )\(if .[1]>0 then "\(.[1])m " else "" end
                  )\(.[2])s" end
             )\t\(.title)"' \
-            "$uploadTrackingFile"
+            "$publishedUploadsFile"
           2>&1 ) \
         | column -s$'\t' -t \
         | less --shift=2 \
@@ -2595,12 +2591,12 @@ addLinkToPrevVideoPart() {
 
     # Find the id of the previous part
     prevPart=$((videoPart-1))
-    echo "Editing part $prevPart description with link to part $videoPart..."
+    echo "Editing part $prevPart description to included a link to part $videoPart..."
     prevPublishedPart=$(jq \
         --arg ut "$ytVideoId" \
         --arg pt "$prevPart" \
         'select(.youtubeId == $ut and .part == $pt)' \
-        "$uploadTrackingFile"
+        "$publishedUploadsFile"
     )
     prevDmId=$(queryJson "dailyMotionId" "$prevPublishedPart") || exit 1
     [ "$prevDmId" = "null" ] && raiseError "Unable to determine previous part of this video!?"
@@ -2784,7 +2780,7 @@ syncVideoDetails() {
         --compact-output \
         --arg dm "$optSyncDailyMotionID" \
         'select(.dailyMotionId == $dm)' \
-        "$uploadTrackingFile"
+        "$publishedUploadsFile"
     )
     [ -z "$uploadInfoJson" ] \
         && raiseError "Could not find dailymotion Video ID in uploaded list: $optSyncDailyMotionID"
@@ -2957,7 +2953,10 @@ dmResponsePrettyPrint() {
 }
 
 getDailyMotionAccess() {
-
+    
+    # Print info
+    echo "Connecting to api.dailymotion.com ..."
+    
     # Test website is available
     testDailyMotionAvailablity
 
@@ -3031,7 +3030,6 @@ getUserInfo() {
     dmUsername=$(queryJson "username" "$dmServerResponse") || exit 1
 
     # Mark up success
-    echo "Successfully connected to dailymotion.com"
     echo "Channel Name:                   " $dmAccountName
     echo "Signed as Partner:              " $dmIsParnter
     echo "Verified Partner:               " $dmIsVerified
