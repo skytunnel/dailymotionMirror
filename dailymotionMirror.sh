@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.6.3
+scriptVersionNo=0.6.4
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1126,17 +1126,17 @@ recordSkipStats() {
 }
 
 printStatistics() {
-    echo "*****************************************************************"
-    echo "**** Upload statistics for session on $(date +"%F") ****************"
-    echo "*****************************************************************"
-    echo "*****************************************************************"
+    echo "********************************************************************"
+    echo "**** Upload statistics for session on $(date +"%F") *******************"
+    echo "********************************************************************"
+    echo "********************************************************************"
     echo "**** Remaining videos to be uploaded:  " $((totalVideosRemaining-totalVideosUploaded))
     echo "**** Videos uploaded this session:     " $totalVideosUploaded
     echo "**** Total duration uploaded:          " $(date +%T -u -d @$totalDurationUploaded) "("$totalDurationUploaded" seconds)"
     echo "**** Videos skipped:                   " $totalVideosSkipped
     echo "**** Total duration of skipped videos: " $((totalDurationSkipped/60/60))"h "$(date +"%Mm %Ss" -u -d @$totalDurationSkipped) "("$totalDurationSkipped" seconds)"
     echo "**** Total time taken:                 " $(date +"%Hh %Mm %Ss" -d "-$mainStartTime seconds")
-    echo "*****************************************************************"
+    echo "********************************************************************"
 }
 
 initialiseVariables() {
@@ -1499,7 +1499,7 @@ processExistingJsons() {
         uploadToDailyMotion
         
         # Finish marker
-        echo "*****************************************************************"
+        echo "********************************************************************"
 
     done
 
@@ -1633,7 +1633,7 @@ processNewDownloads() {
         resetVideoSearchTimeout
         
         # Finish marker
-        echo "*****************************************************************"
+        echo "********************************************************************"
 
     done
 }
@@ -1957,13 +1957,13 @@ prepareForUpload() {
     fi
 
     # Print start of new video
-    echo "*****************************************************************"
+    echo "********************************************************************"
     if [ "$videoId" != "$ytVideoId" ]; then
-        echo "**** Processing Youtube Video ID $videoId ********************"
+        echo "**** Processing Youtube Video ID $videoId ***********************"
     else
         echo "**** Existing File: $videoFilename"
     fi
-    echo "*****************************************************************"
+    echo "********************************************************************"
 
     # Get Daily Motion Upload Limits
     dmGetAllowance
