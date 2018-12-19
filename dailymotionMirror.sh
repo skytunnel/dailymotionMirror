@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.6.4
+scriptVersionNo=0.6.5
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1736,11 +1736,14 @@ splitVideoRoutine() {
 
     # Recalculate the split size encase video was was trimmed after duration was cached
     if [ $videoSplits -gt 1 ]; then
+        videoSplits=0
         if [ $dmMaxVideoDuration -gt 0 ] && [ $videoDuration -gt $dmMaxVideoDuration ]; then
             videoSplits=$((videoDuration/dmMaxVideoDuration+1))
         fi
-    else
-        # Is split required for file size
+    fi
+    
+    # Is split required for file size
+    if [ $videoSplits -le 1 ]; then
         videoFileSize=($(du --bytes "$videoFilePath"))
         videoFileSize=${videoFileSize[0]}
         if [ $dmMaxVideoSize -gt 0 ] && [ $videoFileSize -gt $dmMaxVideoSizeTolerance ]; then
@@ -3693,7 +3696,7 @@ setDefaultPropteries() {
     [ -z "$delayDownloadIfVideoIsLongerThan" ]      && delayDownloadIfVideoIsLongerThan="60 minutes"
     [ -z "$delayedVideosWillBeUploadedAfter" ]      && delayedVideosWillBeUploadedAfter="7 days"
     [ -z "$targetRemainingAllowance" ]              && targetRemainingAllowance="30 seconds"
-    [ -z "$durationAllowanceSearchTimeout" ]        && durationAllowanceSearchTimeout="10 minutes"
+    [ -z "$durationAllowanceSearchTimeout" ]        && durationAllowanceSearchTimeout="30 minutes"
     [ -z "$mirrorVideoThumbnails" ]                 && mirrorVideoThumbnails=N
     [ -z "$uploadVideoAppendedTags" ]               && uploadVideoAppendedTags=
     [ -z "$uploadVideoWithNextVideoIdPlayback" ]    && uploadVideoWithNextVideoIdPlayback=
