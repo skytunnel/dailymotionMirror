@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.6.5
+scriptVersionNo=0.6.7
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -58,6 +58,7 @@ setConstants() {
     backupDir="backup"
     keepLogsDir="logs"
     keepVideosDir="done"
+    failedVideosDir="failed"
 
     # DailyMotion's automated upload limits...
     # https://developer.dailymotion.com/api#guidelines
@@ -2353,14 +2354,23 @@ uploadToDailyMotion() {
 
             # Markup that account is locked out for 24-hours
             dmTrackAllowance $dmDurationAllowance
-
-        else
-            # Track the duration just encase
-            dmTrackAllowance $videoDuration
+            
+            # Exit the program
+            exitRoutine
         fi
+        
+        # Track the duration just encase
+        #dmTrackAllowance $videoDuration
+        
+        # Move to failed folder (so that it doesn't keep trying to upload a post it)
+        echo "Moving video to the failed directory..."
+        [ -d "./$failedVideosDir" ] || mkdir "./$failedVideosDir"
+        mv "./$videoFilePath" "./$failedVideosDir/$videoFilePath"
+        mv "./$videoJson" "./$failedVideosDir/$videoJson"
+        
+        # Try next video
+        return $ec_ContinueNext
 
-        # Exit the program
-        exitRoutine
     fi
 
     # Initially track against current time (but will be updated later to the published time)
@@ -2916,6 +2926,7 @@ echoUploadsToday() {
     optDebug=Y
     queryVideoDuration=$dmMaxVideoDuration
     dmGetAllowance --do-not-print
+    optDebug=
 
     # Display time to wait for max upload
     echo ""
