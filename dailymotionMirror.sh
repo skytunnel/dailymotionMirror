@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.6.7
+scriptVersionNo=0.6.8
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -834,7 +834,7 @@ helpMenu() {
     wrapHelpColumn "      --show-dm-uploads   " "Query with dailymotion what videos where uploaded in last 24 hours, and compare to local tracking file (for debugging why limits might have exceeded)"
     wrapHelpColumn "      --sync-dm-uploads   " "Same as above, but outputs the dailymotion results to the local allowance tracking file for use during uploads.  Use this if you manually uploaded a video and need this script to account for it when uploading more.  DO NOT USE if you are maintaining mutliple dailymotion accounts on the same internet connection."
     wrapHelpColumn "      --mark-done=ID      " "Mark the given youtube [ID] as downloaded"
-    wrapHelpColumn "      --mark-done=ALL     " "Mark all videos in the .urls file as downloaed (e.g. only upload new videos)"
+    wrapHelpColumn "      --mark-done=ALL     " "Mark all videos in the .urls file as downloaed (i.e. only upload new videos)"
     wrapHelpColumn "      --mark-done=SYNC    " "Mark all videos in the published.json file as downloaded (e.g. to fix problems that might happen)"
     wrapHelpColumn "      --sync-dm-id=ID     " "Sync the current details of the given dailymotion video [ID] with the original youtube video"
     #wrapHelpColumn "      --check-time-offset " "(debugging purposes). Compare the local time to the time on dailymotion servers.  Useful you are exceeding allowances and might be due to clock setting differences"
@@ -1172,6 +1172,7 @@ initialiseVariables() {
     dmVideoId=
     dmVideoTitle=
     dmVideoUrl=
+    downloadError=
     durationLimitWaitTill=
     durationUploadWindow=
     durationUploadWindowMAX=
@@ -1645,6 +1646,7 @@ downloadVideo() {
     waitForUploadAllowance $waitTimeBeforeDownloading "before downloading"
 
     # Download this youtube video id
+    downloadError=N
     logAction "Downloading YouTube video"
     $ytdl --output "%(title)s.%(ext)s" \
         --format best \
@@ -1654,11 +1656,7 @@ downloadVideo() {
         -- $videoId
     if [ $? -ne $ec_Success ]; then
         ytdlDownloadErrorOccured=Y
-        printError "Failed to download video id" $videoId
-        pause "Press enter to continue, or Ctrl+C to quit..."
-        echo ""
-        recordSkipStats
-        return $ec_ContinueNext
+        downloadError=Y
     fi
 
     # Confirm ID (if url given)
@@ -1675,6 +1673,29 @@ downloadVideo() {
             break
         fi
     done
+    
+    # Error Processing
+    if [ $downloadError = Y ]; then
+    
+        # Delete any downloaded files
+        if [ $jsonFound = Y ]; then
+            videoExt=$(queryJson "ext" "$videoJson") || exit 1
+            videoFilename=${jsonName//.$ytdlInfoExt/}
+            videoFilePath=$videoFilename.$videoExt
+            rm --force "./$videoJson"      
+            rm --force "./${videoFilePath}.part"
+            rm --force "./$videoFilePath"
+        fi
+        
+        # Markup Error
+        printError "Failed to download video id" $videoId
+        pause "Press enter to continue, or Ctrl+C to quit..."
+        echo ""
+        recordSkipStats
+        return $ec_ContinueNext
+    fi
+
+    # Error if no json file
     if [ $jsonFound = N ]; then
         echo "json file not found after youtube download!?.  Skipping..."
         recordSkipStats
@@ -2367,6 +2388,7 @@ uploadToDailyMotion() {
         [ -d "./$failedVideosDir" ] || mkdir "./$failedVideosDir"
         mv "./$videoFilePath" "./$failedVideosDir/$videoFilePath"
         mv "./$videoJson" "./$failedVideosDir/$videoJson"
+        echo "$(dmResponsePrettyPrint)" > "./$failedVideosDir/${videoFilePath}.error"
         
         # Try next video
         return $ec_ContinueNext
@@ -2926,7 +2948,7 @@ echoUploadsToday() {
     optDebug=Y
     queryVideoDuration=$dmMaxVideoDuration
     dmGetAllowance --do-not-print
-    optDebug=
+    optDebug=N
 
     # Display time to wait for max upload
     echo ""
