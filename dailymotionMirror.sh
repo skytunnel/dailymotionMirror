@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.6.8
+scriptVersionNo=0.7.0
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -2329,11 +2329,8 @@ uploadToDailyMotion() {
     # Wait 30 minutes before the required time before uploading
     waitForUploadAllowance $waitTimeBeforeUploading "before uploading"
 
-    # Renew Access Token
-    if [ $(date +%s) -gt $dmAccessRenewTime ]; then
-        echo "Renewing Daily Motion Access Token..."
-        getDailyMotionAccess
-    fi
+    # Renew Access Token (if required)
+    renewDailyMotionAccess
 
     # Upload the Video
     logAction "uploading video"
@@ -2345,6 +2342,9 @@ uploadToDailyMotion() {
     # Wait full required time for required allowance to be available
     waitForUploadAllowance 0 "before posting to account"
 
+    # Renew Access Token (if required)
+    renewDailyMotionAccess
+    
     # Post the video to channel
     logAction "post video to channel"
     dmServerResponse=$(curl --silent --request POST \
@@ -2988,6 +2988,16 @@ dmResponsePrettyPrint() {
     jq '.' <<< "$dmServerResponse"
 }
 
+renewDailyMotionAccess() {
+    
+    # Check if access renewal required
+    if [ $(date +%s) -gt $dmAccessRenewTime ]; then
+        echo "Renewing Daily Motion Access Token..."
+        getDailyMotionAccess
+    fi
+
+}
+
 getDailyMotionAccess() {
     
     # Print info
@@ -3041,7 +3051,7 @@ getDailyMotionAccess() {
     dmAccessExpireTime=$(date +%s -d "+$dmAccessExpiresIn seconds")
 
     # Set time to renew the access token (1 hour before expiry)
-    dmAccessRenewTime=$((dmAccessExpireTime-3600))
+    dmAccessRenewTime=$((dmAccessExpireTime-waitTimeBeforeUploading))
 
 }
 
