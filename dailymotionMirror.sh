@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version Tracking
-scriptVersionNo=0.7.0
+scriptVersionNo=0.7.2
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -67,7 +67,7 @@ setConstants() {
     dmDurationAllowanceExpirySTR="24 hours"     # How long before duration expires and can be used again
     dmVideosPerDay=10                           # Max number of videos per day
     dmVideosPerDayForVerifiedPartners=96        # Max number of videos per day on Verified Partner Accounts
-    #dmVideoAllowance=4 (no longer inforced)    # Dailymotion.com video count allowance per hour (OLD LIMIT NO LONGER IN USE - Use to be 4 uploads per hour)
+    #dmVideoAllowance=4 (no longer enforced)    # Dailymotion.com video count allowance per hour (OLD LIMIT NO LONGER IN USE - Use to be 4 uploads per hour)
     dmVideoAllowanceExpirySTR="60 minutes"      # How long before video count expires and can be used again
     dmExpiryToleranceTimeSTR="30 seconds"       # Additional amount of seconds to wait on top of the dailymotion allowance expiry (in order to avoid exceeding limits)
     dmWaitTimeBetweenUploadsSTR="10 seconds"    # The minimum seconds between one upload ending and another beginning
@@ -1322,7 +1322,7 @@ getVideoDuration() {
     if [ $videoDate -gt $delayDownloadsAfter ] && [ $videoDuration -gt $delayDownloadDuration ]; then
     
         # Check if a trim has occurred since last cache
-        if ! [ $videoDuration -le $cachedVideoDuration ]; then
+        if ! [ $videoDuration -lt $cachedVideoDuration ]; then
         
             # Mark up that video has to be delayed
             delayedUntil=$(date +%s -d "$videoDateStr + $delayedVideosWillBeUploadedAfter")
@@ -2539,7 +2539,7 @@ checkOnPublishingVideos() {
                 uploadLine="$dmCreatedTime $dmDuration $uploadId $dmStatus"
             else
                 # Mark up latest check time
-                echo ":::: Will check up on this video again later"
+                echo "    Will check up on this video again later"
                 checkTime=$(date +%s)
                 ((checkTime+=dmTimeOffset))
                 uploadLine="$checkTime $uploadDur $uploadId $dmStatus"
@@ -2586,6 +2586,7 @@ waitForPublish() {
     until [ $(date +%s) -gt $publishWaitTill ]; do
 
         # Query video info
+        renewDailyMotionAccess
         dmServerResponse=$(dmGetFieldValue video/$dmVideoId "$videoFields")
         dmStatus=$(queryJson "status" "$dmServerResponse") || exit 1
 
@@ -2762,7 +2763,7 @@ dmChangeUserField() {
         raiseError "Unexpected response!? $(dmResponsePrettyPrint)"
     fi
     if [ "$replacedFieldValue" = "$newFieldValue" ]; then
-        echo "Sucessfully changed $changeFieldName to $replacedFieldValue"
+        echo "Successfully changed $changeFieldName to $replacedFieldValue"
     else
         echo "Failed to change ${replacedFieldValue}!  Value is still $replacedFieldValue"
     fi
@@ -3271,7 +3272,7 @@ grantDailyMotionAccess() {
     echo "dmRefreshToken=\"$dmRefreshToken\"" >> "$propertiesFile"
     
     # Mark up sucessful
-    echo "Sucessfully logged in"
+    echo "Successfully logged in"
     echo ""
 
 }
