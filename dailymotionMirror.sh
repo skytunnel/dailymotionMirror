@@ -1,7 +1,11 @@
 #!/bin/bash
 
+# Title:        dailymotionMirror
+# Description:  Uses the dailymotion api to mirror videos from a given youtube playlist downloaded via youtube-dl
+# Disclaimer:   I take no responsibility for any prohibited content that is uploaded to dailymotion as a result of using this script.
+
 # Version Tracking
-scriptVersionNo=0.7.3
+scriptVersionNo=0.7.4
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -3087,7 +3091,7 @@ getUserInfo() {
     echo "Channel Name:                   " $dmAccountName
     echo "Signed as Partner:              " $dmIsParnter
     echo "Verified Partner:               " $dmIsVerified
-    echo "Max Allowed Duration:           " $dmMaxVideoDuration "seconds"
+    echo "Max Allowed Duration:           " $(($dmMaxVideoDuration/60)) "minutes"
     echo "Max Allowed File Size:          " $(($dmMaxVideoSize/1024/1024)) "mb"
     echo "Access expires at:              " $(date -d @$dmAccessExpireTime)
     if [ $optDebug = Y ]; then
