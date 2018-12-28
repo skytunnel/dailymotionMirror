@@ -2,10 +2,10 @@
 
 # Title:        dailymotionMirror
 # Description:  Uses the dailymotion api to mirror videos from a given youtube playlist downloaded via youtube-dl
-# Disclaimer:   I take no responsibility for any prohibited content that is uploaded to dailymotion as a result of using this script.
+# Disclaimer:   The author of this script take no responsibility for any prohibited content that is uploaded to dailymotion as a result of using this script.
 
 # Version Tracking
-scriptVersionNo=0.7.4
+scriptVersionNo=0.7.5
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1041,6 +1041,15 @@ main() {
         echo "Upload window does not start till close to the next scheduled run"
         echo "Quitting this run, and let the next schedule pick up the videos for processing"
         exitRoutine
+    fi
+    
+    # Wait until nearer the upload window before starting
+    earliestStartTime=$((uploadWindowStart-waitTimeBeforeDownloading))
+    waitForWindowStart=$((earliestStartTime-$(date +%s)))
+    if [ $waitForWindowStart -gt 0 ]; then
+        echo "Upload window not open yet.  Waiting till "$(date +%X -d @$earliestStartTime)" before beginning ..."
+        sleep $waitForWindowStart
+        echo ""
     fi
 
     # Initial Variables
