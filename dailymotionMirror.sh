@@ -5,7 +5,7 @@
 # Disclaimer:   The author of this script take no responsibility for any prohibited content that is uploaded to dailymotion as a result of using this script.
 
 # Version Tracking
-scriptVersionNo=0.7.5
+scriptVersionNo=0.7.6
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -809,12 +809,12 @@ helpMenu() {
     #wrapHelpColumn "      --multi-instance    " "TESTING ONLY.  Allow a second instance to be run while another is still going"
 
     echo ""
-    echo "  OPTIONS - for editing your preferances"
+    echo "  OPTIONS - for editing your preferences"
     wrapHelpColumn "      --edit-urls         " "Bring up the editor for the file which holds the urls of the playlists/channels to download"
-    wrapHelpColumn "      --edit-prop         " "Bring up the editor for the properties file to change perferances on how the video is published"
+    wrapHelpColumn "      --edit-prop         " "Bring up the editor for the properties file to change preferences on how the video is published"
     wrapHelpColumn "      --edit-schedule     " "Bring up the editor for the cron job which schedules this script to run.  Requires root"
     wrapHelpColumn "      --stop-schedule     " "Completely stop the schedule from running this script automatically.  Requires root"
-    wrapHelpColumn "      --first-time-setup  " "Triggers automatically on first run (WARNING - running this will reset your login and perferences!).  This is run by default when nothing has been setup yet.  Requires root"
+    wrapHelpColumn "      --first-time-setup  " "Triggers automatically on first run (WARNING - running this will reset your login and preferences!).  This is run by default when nothing has been setup yet.  Requires root"
 
     echo ""
     echo "  OPTIONS - for managing your dailymotion account"
@@ -836,7 +836,7 @@ helpMenu() {
     wrapHelpColumn "      --update            " "Download the latest release of this script and replace the current version with it.  Requires root"
     #wrapHelpColumn "      --update[=BRANCH]   " "Download the latest release of this script (from the specified git branch) and replace the current version with it.  Requires root"
     wrapHelpColumn "      --show-dm-uploads   " "Query with dailymotion what videos where uploaded in last 24 hours, and compare to local tracking file (for debugging why limits might have exceeded)"
-    wrapHelpColumn "      --sync-dm-uploads   " "Same as above, but outputs the dailymotion results to the local allowance tracking file for use during uploads.  Use this if you manually uploaded a video and need this script to account for it when uploading more.  DO NOT USE if you are maintaining mutliple dailymotion accounts on the same internet connection."
+    wrapHelpColumn "      --sync-dm-uploads   " "Same as above, but outputs the dailymotion results to the local allowance tracking file for use during uploads.  Use this if you manually uploaded a video and need this script to account for it when uploading more.  DO NOT USE if you are maintaining multiple dailymotion accounts on the same internet connection."
     wrapHelpColumn "      --mark-done=ID      " "Mark the given youtube [ID] as downloaded"
     wrapHelpColumn "      --mark-done=ALL     " "Mark all videos in the .urls file as downloaed (i.e. only upload new videos)"
     wrapHelpColumn "      --mark-done=SYNC    " "Mark all videos in the published.json file as downloaded (e.g. to fix problems that might happen)"
@@ -1009,7 +1009,7 @@ main() {
 
     # Record start time
     mainStartTime=$(date +%s)
-    echo "Start date time:                " $(date +"%F %T")
+    echo "Start date time:                " $(date -d @$mainStartTime)
 
     # Check required files exist
     [ -f "$urlsFile" ] || raiseError "urls file not found! $urlsFile"
@@ -1048,9 +1048,13 @@ main() {
     waitForWindowStart=$((earliestStartTime-$(date +%s)))
     if [ $waitForWindowStart -gt 0 ]; then
         echo "Upload window not open yet.  Waiting till "$(date +%X -d @$earliestStartTime)" before beginning ..."
+        [ -t 0 ] && echo "(Or press Ctrl+C to quit instead)"
         sleep $waitForWindowStart
         echo ""
     fi
+    
+    # Restart start time for more accurate statistics
+    mainStartTime=$(date +%s)
 
     # Initial Variables
     startStatistics
@@ -2097,7 +2101,7 @@ dmGetAllowance() {
 
     # Reset Dailymotion upload limits
     remainingDuration=$dmDurationAllowance
-    #remainingVideos=$dmVideoAllowance # (NOTE: Old limit no longer inforced)
+    #remainingVideos=$dmVideoAllowance # (NOTE: Old limit no longer enforced)
     remainingDailyVideos=$dmVideosPerDay
     remainingDurationMAX=$dmDurationAllowance
     remainingDailyVideosMAX=$dmVideosPerDay
@@ -2184,7 +2188,7 @@ dmGetAllowance() {
 
         # Videos in the last hour
         if [ $uploadTime -ge $hourlyUploadWindow ]; then
-            #((remainingVideos-=1)) # (NOTE: Old limit no longer inforced)
+            #((remainingVideos-=1)) # (NOTE: Old limit no longer enforced)
             [ $oldestVideoThisHour -eq 0 ] && oldestVideoThisHour=$uploadTime
         fi
 
@@ -2229,7 +2233,7 @@ dmGetAllowance() {
         echo "  Current video duration:            " $(date +%T -u -d @$videoDuration) "("$videoDuration" seconds)"
         echo "  Remaining duration (now):          " $(date +%T -u -d @$remainingDuration) "("$remainingDuration" seconds)"
         echo "  Remaining duration (session):      " $(date +%T -u -d @$remainingDurationMAX) "("$remainingDurationMAX" seconds)"
-        #echo "  Remaining hourly uploads:          " $remainingVideos  #(NOTE: Old limit no longer inforced)
+        #echo "  Remaining hourly uploads:          " $remainingVideos  #(NOTE: Old limit no longer enforced)
         echo "  Remaining daily uploads (now):     " $remainingDailyVideos
         echo "  Remaining daily uploads (session): " $remainingDailyVideosMAX
     fi
@@ -2239,7 +2243,7 @@ dmGetAllowance() {
     maxWaitTill=$minimumWaitTill
     waitingForType=$wr_minimumTime
 
-    # Check if videos per hour limit reached (NOTE: Old limit no longer inforced)
+    # Check if videos per hour limit reached (NOTE: Old limit no longer enforced)
     #if [ $remainingVideos -lt 1 ]; then
     #    videoLimitWaitTill=$((oldestVideoThisHour+dmVideoAllowanceExpiry))
     #    if [ $videoLimitWaitTill -gt $maxWaitTill ]; then
@@ -2383,7 +2387,7 @@ uploadToDailyMotion() {
         # Print full details of the error
         echo "Failed post the video to the account!$(dmResponsePrettyPrint)"
 
-        # Suspend account for 24hours if limits exceeded
+        # Suspend account for 24 hours if limits exceeded
         # https://faq.dailymotion.com/hc/en-us/articles/115009030568-Upload-policies
         dmErrorReason=$(queryJson "error.error_data.reason" "$dmServerResponse") || exit 1
         if [ "$dmErrorReason" = "upload_limit_exceeded" ]; then
@@ -3458,7 +3462,7 @@ loadPropertiesFile() {
 
     # Load properties from users set file
     . "$propertiesFile"
-    [ $? -eq $ec_Success ] || raiseError "Failure occured while loadind .prop file: $propertiesFile"
+    [ $? -eq $ec_Success ] || raiseError "Failure occurred while loading .prop file: $propertiesFile"
 
     # Check for new template version of the properties file (and update if needed)
     updatePropFile || return 0
