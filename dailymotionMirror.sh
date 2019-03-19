@@ -5,7 +5,7 @@
 # Disclaimer:   The author of this script take no responsibility for any prohibited content that is uploaded to dailymotion as a result of using this script.
 
 # Version Tracking
-scriptVersionNo=0.7.6
+scriptVersionNo=0.7.9
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1092,21 +1092,25 @@ exitRoutine() {
 
     # Exit if not run by main procedure
     [ -z $mainProcedureActivated ] && exit
+    
+    # Clean up actions after uploads
+    if [ $totalVideosUploaded -gt 0 ]; then
+    
+        # Clear down the video cache of upload videos
+        clearVideoCacheFile
 
-    # Clear down the video cache of upload videos
-    clearVideoCacheFile
+        # Wait for remaining videos to be published
+        queryVideoDuration=0
+        dmGetAllowance --do-not-print
+        if [ $unpublishedVideosExist = Y ]; then
+            checkTill=$dmUploadQuitingTime
+            checkOnPublishingVideos
+        fi
 
-    # Wait for remaining videos to be published
-    queryVideoDuration=0
-    dmGetAllowance --do-not-print
-    if [ $unpublishedVideosExist = Y ]; then
-        checkTill=$dmUploadQuitingTime
-        checkOnPublishingVideos
+        # Print info on what was done
+        printStatistics
     fi
-
-    # Print info on what was done
-    printStatistics
-
+    
     # Release the lock file
     releaseInstance
 
@@ -2381,6 +2385,7 @@ uploadToDailyMotion() {
     )
 
     # Check for failure to post video
+    echo "TESTING: $(dmResponsePrettyPrint)"
     dmVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
     if [ "$dmVideoId" = "null" ]; then
 
@@ -2424,6 +2429,7 @@ uploadToDailyMotion() {
 
     # Initially track against current time (but will be updated later to the published time)
     dmServerResponse=$(dmGetFieldValue video/$dmVideoId duration)
+    echo "TESTING2: $(dmResponsePrettyPrint)"
     dmDuration=$(queryJson "duration" "$dmServerResponse") || exit 1
     dmTrackAllowance $dmDuration $dmVideoId "waiting"
 
@@ -4013,7 +4019,7 @@ updateSourceCode() {
     if [ "$scriptVersionNo" \> "$newVersionNumber" ]; then
         echo "You are on a higher version than the latest $optUpdateGitBranch release!? Latest version is $newVersionNumber"
         promptYesNo "Are you sure you want downgrade this script?"
-        if [ $? -eq $ec_Yes ]; then
+        if [ $? -ne $ec_Yes ]; then
             rm $tmpFile
             exit
         fi
