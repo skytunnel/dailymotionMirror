@@ -5,7 +5,7 @@
 # Disclaimer:   The author of this script take no responsibility for any prohibited content that is uploaded to dailymotion as a result of using this script.
 
 # Version Tracking
-scriptVersionNo=0.7.9
+scriptVersionNo=0.8.0
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -2385,7 +2385,6 @@ uploadToDailyMotion() {
     )
 
     # Check for failure to post video
-    echo "TESTING: $(dmResponsePrettyPrint)"
     dmVideoId=$(queryJson "id" "$dmServerResponse") || exit 1
     if [ "$dmVideoId" = "null" ]; then
 
@@ -2429,7 +2428,6 @@ uploadToDailyMotion() {
 
     # Initially track against current time (but will be updated later to the published time)
     dmServerResponse=$(dmGetFieldValue video/$dmVideoId duration)
-    echo "TESTING2: $(dmResponsePrettyPrint)"
     dmDuration=$(queryJson "duration" "$dmServerResponse") || exit 1
     dmTrackAllowance $dmDuration $dmVideoId "waiting"
 
