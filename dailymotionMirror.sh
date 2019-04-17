@@ -2,10 +2,10 @@
 
 # Title:        dailymotionMirror
 # Description:  Uses the dailymotion api to mirror videos from a given youtube playlist downloaded via youtube-dl
-# Disclaimer:   The author of this script take no responsibility for any prohibited content that is uploaded to dailymotion as a result of using this script.
+# Disclaimer:   The author of this script takes no responsibility for any prohibited content that is uploaded to dailymotion as a result of using this script.
 
 # Version Tracking
-scriptVersionNo=0.8.0
+scriptVersionNo=0.8.2
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -601,6 +601,9 @@ defaultProcedure() {
     # Standard run when not in interactive mode
     if ! [ -t 0 ]; then
 
+        # Check if existing process running this script
+        [ $optAllowMultiInstances = Y ] || exitOnExistingInstance
+    
         # Run main procedure with logs saved
         main > "$logFile" 2>&1
 
@@ -612,6 +615,9 @@ defaultProcedure() {
         echo ""
         if [ $optUserRunUpload = Y ]; then
 
+            # Check if existing process running this script
+            [ $optAllowMultiInstances = Y ] || exitOnExistingInstance
+        
             # Double check they want to run outside of schedule
             echo "Running this command will start an upload outside of your set schedule"
             echo "Try using the --edit-schedule command if you want to change when this code runs"
@@ -999,8 +1005,6 @@ watchExistingInstance() {
 
 main() {
 
-    # Check if existing process running this script
-    [ $optAllowMultiInstances = Y ] || exitOnExistingInstance
     mainProcedureActivated=Y
 
     # Record script Version
@@ -1770,7 +1774,11 @@ markAsDownloaded() {
         *)
             echo "validating id/url"...
             confirmVideoId=$($ytdl --get-id -- $optMarkDoneID)
-            [ $? -ne $ec_Success ] && raiseError "Invalid ID/URL! $optMarkDoneID"
+            if [ $? -ne $ec_Success ]; then
+                promptYesNo "Could not validate video ID!  Are you sure you want to mark this has done?"
+                [ $? -eq $ec_Yes ] || raiseError "Cancelled!"
+                confirmVideoId=$optMarkDoneID
+            fi
             [ -z "$confirmVideoId" ] && raiseError "Invalid ID/URL! $optMarkDoneID"
             echo "youtube $confirmVideoId" >> "$archiveFile"
             ;;
@@ -2611,40 +2619,42 @@ waitForPublish() {
     fi
 
     # Wait for video to finish encoding/publishing
-    until [ $(date +%s) -gt $publishWaitTill ]; do
+    if [ $(date +%s) -lt $publishWaitTill ]; then
+        until [ $(date +%s) -gt $publishWaitTill ]; do
 
-        # Query video info
-        renewDailyMotionAccess
-        dmServerResponse=$(dmGetFieldValue video/$dmVideoId "$videoFields")
-        dmStatus=$(queryJson "status" "$dmServerResponse") || exit 1
+            # Query video info
+            renewDailyMotionAccess
+            dmServerResponse=$(dmGetFieldValue video/$dmVideoId "$videoFields")
+            dmStatus=$(queryJson "status" "$dmServerResponse") || exit 1
 
-        # Quit loop on unexpected status (or published)
-        [ $dmStatus != "waiting" ] && \
-        [ $dmStatus != "processing" ] && \
-        [ $dmStatus != "ready" ] && break
+            # Quit loop on unexpected status (or published)
+            [ $dmStatus != "waiting" ] && \
+            [ $dmStatus != "processing" ] && \
+            [ $dmStatus != "ready" ] && break
 
-        sleep 30
-    done
+            sleep 30
+        done
 
-    # Double-check video is published
-    dmVideoTitle=$(queryJson "title" "$dmServerResponse") || exit 1
-    if [ $dmStatus != "published" ]; then
-        dmEncodingPC=$(queryJson "encoding_progress" "$dmServerResponse") || exit 1
-        dmPublishingPC=$(queryJson "publishing_progress" "$dmServerResponse") || exit 1
-        echo "    Video ID $dmVideoId is still not published! - $dmVideoTitle"
-        echo "          Status:              " $dmStatus
-        echo "          Encoding Progress:   " $dmEncodingPC"%"
-        echo "          Publishing Progress: " $dmPublishingPC"%"
-    else
-        echo "    Successfully published $dmVideoTitle"
+        # Double-check video is published
+        dmVideoTitle=$(queryJson "title" "$dmServerResponse") || exit 1
+        if [ $dmStatus != "published" ]; then
+            dmEncodingPC=$(queryJson "encoding_progress" "$dmServerResponse") || exit 1
+            dmPublishingPC=$(queryJson "publishing_progress" "$dmServerResponse") || exit 1
+            echo "    Video ID $dmVideoId is still not published! - $dmVideoTitle"
+            echo "          Status:              " $dmStatus
+            echo "          Encoding Progress:   " $dmEncodingPC"%"
+            echo "          Publishing Progress: " $dmPublishingPC"%"
+        else
+            echo "    Successfully published $dmVideoTitle"
+        fi
+
+        # Warn if video was flagged as Explicit
+        dmExplicit=$(queryJson "explicit" "$dmServerResponse") || exit 1
+        if [ "$dmExplicit" = "true" ]; then
+            echo "    WARNING: Video ID $dmVideoId was flagged as Explicit! - $dmVideoTitle"
+        fi
     fi
-
-    # Warn if video was flagged as Explicit
-    dmExplicit=$(queryJson "explicit" "$dmServerResponse") || exit 1
-    if [ "$dmExplicit" = "true" ]; then
-        echo "    WARNING: Video ID $dmVideoId was flagged as Explicit! - $dmVideoTitle"
-    fi
-
+    
 }
 
 addLinkToPrevVideoPart() {
