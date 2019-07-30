@@ -5,7 +5,7 @@
 # Disclaimer:   The author of this script takes no responsibility for any prohibited content that is uploaded to dailymotion as a result of using this script.
 
 # Version Tracking
-scriptVersionNo=0.8.2
+scriptVersionNo=0.8.4
 
 # Error handler just to print where fault occurred.  But code will still continue
 errorHandler() {
@@ -1018,6 +1018,9 @@ main() {
     # Check required files exist
     [ -f "$urlsFile" ] || raiseError "urls file not found! $urlsFile"
 
+    # Initial Variables
+    startStatistics
+    
     # Determine when the next 24 hour upload period begins
     queryVideoDuration=0
     oldestVideoThisHour=0
@@ -1059,9 +1062,6 @@ main() {
     
     # Restart start time for more accurate statistics
     mainStartTime=$(date +%s)
-
-    # Initial Variables
-    startStatistics
 
     # Get connected to dailymotion
     initializeDailyMotion
@@ -2592,6 +2592,9 @@ checkOnPublishingVideos() {
         else
             newFileContent+=$'\n'"$uploadLine"
         fi
+        
+        # Break loop when time limit passed
+        [ $(date +%s) -gt $checkTill ] && break
 
     done
 
